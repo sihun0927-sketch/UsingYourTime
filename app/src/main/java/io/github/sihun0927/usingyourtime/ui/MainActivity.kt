@@ -34,7 +34,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // 거부는 화면 회전으로 잊히면 안 된다. 켜졌는지는 어차피 onResume이 다시 판정한다.
+        // 거부는 화면 회전으로 잊히면 안 된다. 두 번 거부해 OS 신호가 사라진 뒤에도 이 기억이
+        // 남는다. 권한이 켜졌는지는 어차피 onResume이 다시 판정한다.
         if (savedInstanceState?.getBoolean(STATE_NOTIFICATION_PERMISSION_DENIED) == true) {
             notificationPermission = NotificationPermission.Denied
         }
@@ -89,14 +90,23 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 허용됐거나 요청이 없는 API 32 이하면 [NotificationPermission.Granted], 이번 프로세스에서 이미
-     * 거부당했으면 [NotificationPermission.Denied]를 유지하고, 그 밖에는 [NotificationPermission.Required].
+     * 지금 권한 상태를 [NotificationPermission] 국면으로 옮긴다.
      *
-     * 사용자가 앱 정보 화면에서 권한을 끄면 OS가 프로세스를 다시 시작하므로 거부 기억이 남지 않는다.
+     * 거부는 프로세스를 넘어 살아남아야 한다. 앱을 껐다 켠 뒤에 "측정 시작"이 다시 활성으로 보이면
+     * 눌러도 다이얼로그 없이 거부되는 헛탭이 된다. 그래서 이번 프로세스의 기억뿐 아니라 OS가 들고
+     * 있는 `shouldShowRequestPermissionRationale`도 함께 본다. 한 번 거부하거나 설정에서 권한을 끈
+     * 뒤라야 참이 되므로, 참이면 곧 거부 상태다.
+     *
+     * 두 번 거부해 다이얼로그가 아예 뜨지 않게 된 뒤로는 OS 신호가 다시 거짓이 된다. 그때는
+     * [NotificationPermission.Required]로 보이지만, 한 번 누르면 즉시 [NotificationPermission.Denied]가
+     * 되어 안내 줄과 비활성 버튼으로 돌아온다.
      */
     private fun notificationPermissionState(): NotificationPermission = when {
         !needsNotificationPermission() -> NotificationPermission.Granted
         notificationPermission == NotificationPermission.Denied -> NotificationPermission.Denied
+        shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) ->
+            NotificationPermission.Denied
+
         else -> NotificationPermission.Required
     }
 

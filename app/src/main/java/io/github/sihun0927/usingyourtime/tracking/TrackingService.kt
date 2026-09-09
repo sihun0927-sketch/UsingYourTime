@@ -69,8 +69,7 @@ class TrackingService : Service() {
      * 경우든 화면이 없는 세션을 계속 보여주지 않도록 창구를 비운다.
      */
     override fun onDestroy() {
-        state = SessionState.Off
-        TrackingStatus.publish(state)
+        TrackingStatus.publish(SessionState.Off)
         serviceScope.cancel()
         super.onDestroy()
     }

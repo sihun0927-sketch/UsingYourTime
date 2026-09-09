@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -66,6 +67,12 @@ internal fun StatusCard(
                 label = stringResource(R.string.status_card_session_duration_label),
                 value = sessionDurationText(sessionStartedAtMillis),
             )
+            TrackingButton(
+                trackingOn = trackingOn,
+                notificationPermission = notificationPermission,
+                onStartTracking = onStartTracking,
+                onPause = onPause,
+            )
             if (!trackingOn) {
                 SupportingText(
                     text = stringResource(R.string.status_card_off_description),
@@ -73,12 +80,6 @@ internal fun StatusCard(
                 )
             }
             NotificationPermissionNotice(notificationPermission)
-            TrackingButton(
-                trackingOn = trackingOn,
-                notificationPermission = notificationPermission,
-                onStartTracking = onStartTracking,
-                onPause = onPause,
-            )
         }
     }
 }
@@ -123,7 +124,13 @@ private fun sessionDurationText(sessionStartedAtMillis: Long?): String {
 @Composable
 private fun elapsedSeconds(sessionStartedAtMillis: Long): Long {
     var nowMillis by remember(sessionStartedAtMillis) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(sessionStartedAtMillis) {
+    // 창이 포커스를 잃으면(화면이 꺼지거나 다른 앱으로 가면) 눈금을 멈춘다. 보이지 않는 숫자를
+    // 1초마다 다시 그릴 이유가 없다. 돌아오면 효과가 다시 돌며 지금 시각으로 맞춘다.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(sessionStartedAtMillis, windowFocused) {
+        if (!windowFocused) return@LaunchedEffect
+
+        nowMillis = System.currentTimeMillis()
         while (true) {
             // 초가 바뀌는 순간에 깨어나야 눈금이 밀리지 않는다.
             delay(TICK_MILLIS - System.currentTimeMillis() % TICK_MILLIS)
@@ -169,12 +176,7 @@ private fun SupportingText(text: String, color: Color, modifier: Modifier = Modi
     )
 }
 
-/**
- * 카드의 버튼 1개. 꺼짐이면 채운 "측정 시작", 켜짐이면 테두리 "측정 중지"(스펙 5절).
- *
- * 알림 권한 거부로 비활성이 되는 것은 "측정 시작"뿐이다. "측정 중지"는 이미 켜진 측정에서
- * 빠져나오는 유일한 길이라 권한과 무관하게 늘 눌릴 수 있어야 한다.
- */
+/** 카드의 버튼 1개. 꺼짐이면 채운 "측정 시작", 켜짐이면 테두리 "측정 중지"(스펙 5절). */
 @Composable
 private fun TrackingButton(
     trackingOn: Boolean,
@@ -189,7 +191,7 @@ private fun TrackingButton(
     } else {
         Button(
             onClick = onStartTracking,
-            enabled = notificationPermission != NotificationPermission.Denied,
+            enabled = notificationPermission.allowsStartTracking,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.action_start_tracking))
