@@ -28,6 +28,7 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setFitsSystemWindows(true);
         root.addView(btn("1. Start FGS", () -> {
             ProbeLog.e(this, "user: startForegroundService");
             startForegroundService(new Intent(this, ProbeService.class));

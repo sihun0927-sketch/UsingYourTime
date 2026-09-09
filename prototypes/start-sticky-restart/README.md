@@ -34,3 +34,22 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 각 줄의 `screenOn`/`locked`/`importance`로 그 순간 앱이 실제로 백그라운드였는지 확인한다.
 `importance=400`(CACHED)이나 `locked=true`면 백그라운드 조건이 맞다.
+
+## 결과 (2026-09-09, 에뮬레이터 API 36 / Android 16, Google APIs x86_64)
+
+**가능.** 두 시나리오 모두 재시작 직후 `startForeground OK`.
+
+- A) 화면 꺼진 뒤 15초 후 self-kill → 2초 만에 `onStartCommand restart=true` → OK
+- B) 액티비티 종료 + PIN 잠금 + 화면 꺼진 60초 후 `kill -9`(adb root) → 즉시 재시작, `locked=true importance=125` 상태에서 OK
+
+```
+02:34:32.464 pid=5295 screenOn=false locked=false importance=125 | killing self now
+02:34:34.287 pid=5712 screenOn=false locked=false importance=125 | service onCreate SDK=36
+02:34:34.298 pid=5712 screenOn=false locked=false importance=125 | onStartCommand restart=true flags=0 startId=2
+02:34:34.312 pid=5712 screenOn=false locked=false importance=125 | startForeground OK
+02:37:35.080 pid=5875 screenOn=false locked=true  importance=125 | service onCreate SDK=36
+02:37:35.093 pid=5875 screenOn=false locked=true  importance=125 | onStartCommand restart=true flags=0 startId=3
+02:37:35.104 pid=5875 screenOn=false locked=true  importance=125 | startForeground OK
+```
+
+실기기(제조사 정책)는 미확인. 위 절차를 그대로 폰에서 돌리면 된다.
