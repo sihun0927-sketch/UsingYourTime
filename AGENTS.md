@@ -46,6 +46,8 @@ single-context 레이아웃: 루트 `CONTEXT.md` + `docs/adr/`. See `docs/agents
 
 사람이 이슈마다 `/implement <n>`을 입력하고, 끝나면 `/clear`한다. 다음 세션에 남는 것은 이슈 코멘트·PR·커밋뿐이므로 진행 상황·결정·막힌 점은 거기에 적는다.
 
+**모델**: 파이프라인은 세션 모델 하나로 돈다. 스킬(`/implement`·`/tdd`·`/code-review` 등)별로 모델을 나누지 않는다. 세션 모델이 `fable`이면 파이프라인을 시작하지 않고 "`/model opus`로 바꾼 뒤 다시 `/implement <n>`을 입력해 주세요." 한 줄만 반환하고 정지한다.
+
 1. **선택**: `ready-for-agent` 라벨 + 열린 blocker 0 + 미할당. 프론티어 쿼리는 `docs/agents/issue-tracker.md`의 Wayfinding operations.
 2. **claim**: `gh issue edit <n> --add-assignee @me`. 세션의 첫 쓰기.
 3. **분기**: `git switch develop && git pull`, `git switch -c feature/<n>-<slug>`.
