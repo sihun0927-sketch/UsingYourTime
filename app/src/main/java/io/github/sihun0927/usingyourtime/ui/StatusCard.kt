@@ -65,7 +65,7 @@ internal fun StatusCard(
             )
             StatusRow(
                 label = stringResource(R.string.status_card_session_duration_label),
-                value = sessionDurationText(sessionStartedAtMillis),
+                value = sessionDurationText(trackingOn, sessionStartedAtMillis),
             )
             TrackingButton(
                 trackingOn = trackingOn,
@@ -103,17 +103,17 @@ private fun StatusRow(label: String, value: String) {
 }
 
 /**
- * 연속 사용 시간(`sessionDuration`) 표기. 세션이 없으면 "—".
+ * 연속 사용 시간(`sessionDuration`) 표기(스펙 5절). 측정이 켜져 있는데 세션이 없으면 "세션 없음",
+ * 측정이 꺼져 있으면 "—".
  *
  * 형식은 상시 표시의 chronometer와 같다(`Chronometer`도 [DateUtils.formatElapsedTime]을 쓴다).
  * 상태바에서 보던 숫자가 카드에서도 같은 모양으로 올라간다. 숫자뿐이라 `strings.xml`에 두지 않는다.
  */
 @Composable
-private fun sessionDurationText(sessionStartedAtMillis: Long?): String {
-    if (sessionStartedAtMillis == null) {
-        return stringResource(R.string.status_card_session_duration_none)
-    }
-    return DateUtils.formatElapsedTime(elapsedSeconds(sessionStartedAtMillis))
+private fun sessionDurationText(trackingOn: Boolean, sessionStartedAtMillis: Long?): String = when {
+    sessionStartedAtMillis != null -> DateUtils.formatElapsedTime(elapsedSeconds(sessionStartedAtMillis))
+    trackingOn -> stringResource(R.string.status_card_session_duration_idle)
+    else -> stringResource(R.string.status_card_session_duration_none)
 }
 
 /**
