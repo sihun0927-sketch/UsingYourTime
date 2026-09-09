@@ -24,6 +24,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          측정이 켜진 동안 사는 포그라운드 서비스(스펙 8절). subtype 값은 스펙 9절의
+          Play Console FGS 선언문과 같은 영문이어야 한다.
+        -->
+        <service
+            android:name=".tracking.TrackingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated unlock-to-lock continuous usage timer. Runs only while the user keeps tracking on; shows live elapsed time in a persistent notification; on-device only; user can stop anytime from the app." />
+        </service>
     </application>
 
 </manifest>
