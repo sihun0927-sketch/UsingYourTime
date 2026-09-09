@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">UsingTime</string>
     <string name="settings_placeholder">설정은 아직 준비 중이에요</string>
+    <string name="privacy_policy">개인정보처리방침</string>
+    <string name="privacy_policy_url" translatable="false">https://sihun0927-sketch.github.io/UsingYourTime/privacy-policy</string>
 </resources>
