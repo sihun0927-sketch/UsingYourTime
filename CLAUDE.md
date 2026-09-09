@@ -9,3 +9,7 @@
 - 이슈 트래커: `docs/agents/issue-tracker.md`
 - Triage 라벨: `docs/agents/triage-labels.md`
 - 도메인 문서: `docs/agents/domain.md`
+
+## 규칙
+
+Git & PR(브랜치·커밋·`/implement` 파이프라인), 명령어, 코드 스타일, 테스트, 아키텍처, 개발 환경, 주의사항은 모두 `AGENTS.md`에 있다. 도메인 용어와 영어 식별자는 `CONTEXT.md`.
