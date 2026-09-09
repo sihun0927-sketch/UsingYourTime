@@ -1,3 +1,7 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+// AGP 9는 Kotlin 지원이 내장이라 kotlin-android 플러그인을 적용하지 않는다.
+// Compose 컴파일러 플러그인은 여전히 따로 적용해야 한다.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -15,12 +19,6 @@ android {
         versionName = "0.1.0"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-        }
-    }
-
     buildFeatures {
         compose = true
     }
@@ -28,6 +26,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 

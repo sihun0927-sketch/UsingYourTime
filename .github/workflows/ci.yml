@@ -1,11 +1,14 @@
 name: CI
 
+# feature 브랜치의 push는 그 브랜치의 PR이 검사하므로 push 트리거는 통합 브랜치만 둔다.
+# (prototype/*·research/*처럼 머지하지 않는 브랜치에서 빌드가 도는 것도 함께 막는다.)
 on:
   push:
+    branches: [main, develop]
   pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
