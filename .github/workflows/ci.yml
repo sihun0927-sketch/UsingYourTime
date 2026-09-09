@@ -1,0 +1,38 @@
+name: CI
+
+# feature 브랜치의 push는 그 브랜치의 PR이 검사하므로 push 트리거는 통합 브랜치만 둔다.
+# (prototype/*·research/*처럼 머지하지 않는 브랜치에서 빌드가 도는 것도 함께 막는다.)
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: test · assembleDebug
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: JDK 21 준비
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Gradle 준비
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: 테스트·디버그 빌드
+        run: ./gradlew test assembleDebug
+
+      - name: 테스트 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
