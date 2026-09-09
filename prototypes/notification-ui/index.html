@@ -382,8 +382,11 @@
   /* ---------- 렌더 ---------- */
   const $ = s => document.querySelector(s);
   const params = new URLSearchParams(location.search);
-  let variant = ORDER.includes(params.get('variant')) ? params.get('variant') : (ORDER.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'A');
-  let phaseId = PHASES.some(p => p.id === params.get('phase')) ? params.get('phase') : 'realert';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('uyt-proto7') || '{}'); } catch (e) {}
+  const pick = (cands, ok, dflt) => cands.find(c => ok(c)) || dflt;
+  let variant = pick([params.get('variant'), location.hash.slice(1), saved.variant], v => ORDER.includes(v), 'A');
+  let phaseId = pick([params.get('phase'), saved.phase], id => PHASES.some(p => p.id === id), 'realert');
 
   function render() {
     const v = VARIANTS[variant];
@@ -424,6 +427,7 @@
   }
 
   function sync() {
+    try { localStorage.setItem('uyt-proto7', JSON.stringify({ variant, phase: phaseId })); } catch (e) {}
     try {
       const u = new URL(location.href);
       u.searchParams.set('variant', variant); u.searchParams.set('phase', phaseId);
