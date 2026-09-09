@@ -206,6 +206,7 @@ class SessionReducerTest {
                     endedAtMillis = nowMillis,
                     reason = SessionEndReason.GRACE_EXPIRED,
                 ),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -235,9 +236,22 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `유예가 지나면 세션이 잠금 시각으로 닫히고 세션 없음이 된다`() {
+    fun `잠금 뒤 딱 유예 시간만큼 지난 순간에 잠금 해제되면 아직 같은 세션이다`() {
         val startedAtMillis = nowMillis - 23 * MINUTE_MILLIS
         val lockedAtMillis = nowMillis - 3 * MINUTE_MILLIS
+
+        val reduction = reduce(graceSince(startedAtMillis, lockedAtMillis), SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis)),
+            reduction.state,
+        )
+    }
+
+    @Test
+    fun `유예가 지나면 세션이 잠금 시각으로 닫히고 세션 없음이 된다`() {
+        val startedAtMillis = nowMillis - 23 * MINUTE_MILLIS
+        val lockedAtMillis = nowMillis - 3 * MINUTE_MILLIS - 1
 
         val reduction = reduce(graceSince(startedAtMillis, lockedAtMillis), SessionEvent.GraceExpired)
 
@@ -254,24 +268,14 @@ class SessionReducerTest {
 
     @Test
     fun `유예 만료가 이르게 오면 유예 중 그대로 남은 유예만큼 다시 예약한다`() {
-        val startedAtMillis = nowMillis - 21 * MINUTE_MILLIS
         val lockedAtMillis = nowMillis - MINUTE_MILLIS
-        val grace = graceSince(startedAtMillis, lockedAtMillis)
+        val grace = graceSince(nowMillis - 21 * MINUTE_MILLIS, lockedAtMillis)
 
         val reduction = reduce(grace, SessionEvent.GraceExpired)
 
         assertEquals(grace, reduction.state)
         assertEquals(
-            listOf(
-                SessionEffect.UpdatePersistentDisplay(
-                    graceContent(
-                        startedAtMillis,
-                        elapsedMinutes = 21,
-                        graceRemainingMillis = 2 * MINUTE_MILLIS,
-                    ),
-                ),
-                SessionEffect.ScheduleGraceExpiry(atMillis = lockedAtMillis + 3 * MINUTE_MILLIS),
-            ),
+            listOf(SessionEffect.ScheduleGraceExpiry(atMillis = lockedAtMillis + 3 * MINUTE_MILLIS)),
             reduction.effects,
         )
     }
@@ -346,6 +350,32 @@ class SessionReducerTest {
                 ),
             ),
             reduction.effects,
+        )
+    }
+
+    @Test
+    fun `유예 중 1분 tick이 늦게 와 유예가 이미 지났으면 세션이 닫힌다`() {
+        val startedAtMillis = nowMillis - 30 * MINUTE_MILLIS
+        val lockedAtMillis = nowMillis - 10 * MINUTE_MILLIS
+
+        val reduction = reduce(graceSince(startedAtMillis, lockedAtMillis), SessionEvent.MinuteTick)
+
+        assertEquals(SessionState.Idle, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
+                SessionEffect.CloseSession(lockedAtMillis, SessionEndReason.GRACE_EXPIRED),
+                SessionEffect.CancelGraceExpiry,
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `세션 없음에서 1분 tick은 다시 그릴 것이 없다`() {
+        assertEquals(
+            Reduction(SessionState.Idle),
+            reduce(SessionState.Idle, SessionEvent.MinuteTick),
         )
     }
 

@@ -17,7 +17,6 @@ import io.github.sihun0927.usingyourtime.session.SessionEvent
 import io.github.sihun0927.usingyourtime.session.SessionReducer
 import io.github.sihun0927.usingyourtime.session.SessionState
 import io.github.sihun0927.usingyourtime.session.TrackingSettings
-import io.github.sihun0927.usingyourtime.storage.SessionStore
 import io.github.sihun0927.usingyourtime.storage.SettingsStore
 import io.github.sihun0927.usingyourtime.storage.UsingTimeDatabase
 import kotlinx.coroutines.CoroutineScope
@@ -44,14 +43,17 @@ private const val TICK_MILLIS = 60_000L
 class TrackingService : Service() {
 
     /**
-     * `Main.immediate`라 이미 메인 스레드면 첫 효과가 [onStartCommand] 안에서 그대로 실행된다.
-     * 상시 표시가 첫 효과이므로 `startForeground`가 미뤄지지 않는다.
+     * 효과는 모두 메인 스레드에서 돈다. `immediate`라 이미 메인 스레드면 [effects]에 넣는 순간
+     * 대기 중인 소비자가 그 자리에서 이어 달린다.
+     *
+     * 그래서 서비스를 띄우는 첫 이벤트의 상시 표시는 [onStartCommand] 안에서 `startForeground`까지
+     * 간다. 줄이 비어 있고 상시 표시가 늘 첫 효과여서, 앞에서 기다리는 저장이 없기 때문이다.
      */
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val persistentDisplay by lazy { PersistentDisplay(this) }
     private val settingsStore by lazy { SettingsStore(this) }
-    private val sessionStore by lazy { SessionStore(UsingTimeDatabase.get(this).sessionDao()) }
+    private val sessionDao by lazy { UsingTimeDatabase.get(this).sessionDao() }
     private val graceExpiryAlarm by lazy { GraceExpiryAlarm(this) }
 
     /**
@@ -64,7 +66,10 @@ class TrackingService : Service() {
 
     /**
      * 마지막으로 읽은 설정. DataStore가 첫 값을 흘려보내기 전에는 스펙 6절의 기본값이다.
-     * 잠금·잠금 해제는 사용자의 손이 필요해 그때는 이미 읽혀 있다.
+     *
+     * 서비스를 띄우는 `측정 시작`은 그 첫 값보다 먼저 올 수 있지만, 그 전이가 보는 설정은 아직
+     * 사용자가 고칠 수 없는 임계값뿐이다(#23). 유예 시간을 보는 `잠금`부터는 사용자의 손이 한 번
+     * 더 필요해 그때는 이미 읽혀 있다.
      */
     private var settings = TrackingSettings()
 
@@ -123,6 +128,9 @@ class TrackingService : Service() {
     override fun onDestroy() {
         TrackingStatus.publish(SessionState.Off)
         unregisterReceiver(eventReceiver)
+        // 서비스를 시스템이 내렸다면 유예 만료 예약이 남아 있다. 받을 리시버가 사라져 아무 일도
+        // 일어나지 않지만, 기기를 깨우기만 하는 알람을 남길 이유가 없다.
+        graceExpiryAlarm.cancel()
         effects.close()
         serviceScope.cancel()
         super.onDestroy()
@@ -141,16 +149,22 @@ class TrackingService : Service() {
         Log.i(TAG, "$event: ${state.phase} → ${reduction.state.phase}")
         state = reduction.state
         TrackingStatus.publish(state)
-        reduction.effects.forEach(effects::trySend)
+        reduction.effects.forEach { effect ->
+            // 줄이 닫힌 뒤(= 서비스가 내려간 뒤) 늦게 온 이벤트만 여기로 온다. 세션을 닫는 저장이
+            // 이렇게 사라졌다면 열린 행이 남고, 그 재동기화는 스펙 7절대로 #27의 몫이다.
+            if (effects.trySend(effect).isFailure) {
+                Log.w(TAG, "서비스가 내려가 효과를 버린다: $effect")
+            }
+        }
     }
 
     private suspend fun execute(effect: SessionEffect) {
         when (effect) {
             is SessionEffect.UpdatePersistentDisplay -> showPersistentDisplay(effect.content)
             is SessionEffect.SaveTrackingOn -> settingsStore.setTrackingOn(effect.trackingOn)
-            is SessionEffect.OpenSession -> sessionStore.open(effect.startedAtMillis)
-            is SessionEffect.SaveLockedAt -> sessionStore.saveLockedAt(effect.lockedAtMillis)
-            is SessionEffect.CloseSession -> sessionStore.close(effect.endedAtMillis, effect.reason)
+            is SessionEffect.OpenSession -> sessionDao.open(effect.startedAtMillis)
+            is SessionEffect.SaveLockedAt -> sessionDao.saveLockedAt(effect.lockedAtMillis)
+            is SessionEffect.CloseSession -> sessionDao.close(effect.endedAtMillis, effect.reason)
             is SessionEffect.ScheduleGraceExpiry -> scheduleGraceExpiry(effect.atMillis)
             SessionEffect.CancelGraceExpiry -> cancelGraceExpiry()
             SessionEffect.StopService -> stopService()
@@ -192,7 +206,10 @@ class TrackingService : Service() {
 
     /**
      * 유예 만료 깨우기. 프로세스가 깨어 있는 동안은 coroutine 타이머가, 잠들면 알람이 깨운다.
-     * `delay`는 `elapsedRealtime` 기준이라 남은 시간을 지금 한 번만 재면 된다(주의사항 1).
+     *
+     * 메인 디스패처의 `delay`는 `Handler.postDelayed`, 곧 `uptimeMillis` 기준이라 기기가 깊이
+     * 잠든 동안 **멈춰 있다**. 그래서 같은 시각에 `setAndAllowWhileIdle` 알람을 함께 건다. 둘 중
+     * 어느 쪽이 먼저 와도, 늦게 와도 리듀서가 잠금 시각으로 다시 판정하므로 결과는 같다.
      */
     private fun scheduleGraceExpiry(atMillis: Long) {
         graceExpiryTimer?.cancel()

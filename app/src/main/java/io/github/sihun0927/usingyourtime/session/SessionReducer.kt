@@ -119,12 +119,15 @@ object SessionReducer {
         if (state.phase != Phase.Active) return Reduction(state)
         val locked = state.openSession().copy(lockedAtMillis = nowMillis)
 
-        if (!gracePeriodRemains(locked, nowMillis, settings)) {
+        // 유예 0분은 경계 비교로 풀리지 않는다. gap이 0이라 "gap ≤ 유예"가 참이 되기 때문이다.
+        // 전이표가 이 칸을 따로 적은 대로("유예 시간이 0이면 곧바로 세션 없음") 여기서 가른다.
+        if (settings.gracePeriodMillis == 0L) {
             return Reduction(
                 state = SessionState.Idle,
                 effects = listOf(
                     SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
                     closeExpiredSession(locked),
+                    SessionEffect.CancelGraceExpiry,
                 ),
             )
         }
@@ -164,8 +167,12 @@ object SessionReducer {
     }
 
     /**
-     * 아직 유예가 남았는데 `유예 만료`로 깨어났을 때. 유예 시간이 늘어난 뒤 옛 예약이 먼저 온
-     * 경우이므로 남은 유예만큼 다시 예약한다.
+     * 아직 유예가 남았는데 `유예 만료`로 깨어났을 때. 새 전이가 아니라 같은 유예 중 칸이다.
+     * `유예 만료`는 스펙 3절에서 이미 "타임스탬프 재판정" 신호이고, 재판정 결과가 "아직"이면
+     * 유예 중에 머문다.
+     *
+     * 깨우기만 다시 건다. 방금 그 예약을 써 버렸는데 다시 걸지 않으면 기기가 깊이 잠든 동안
+     * 만료를 깨울 것이 남지 않는다. 상시 표시는 `1분 tick`이 어차피 다시 그린다.
      */
     private fun rescheduleGraceExpiry(
         state: SessionState,
@@ -173,13 +180,12 @@ object SessionReducer {
         settings: TrackingSettings,
     ): Reduction {
         if (state.phase != Phase.Grace) return Reduction(state)
-        val session = state.openSession()
+        val lockedAtMillis = state.openSession().lockedAt()
 
         return Reduction(
             state = state,
             effects = listOf(
-                SessionEffect.UpdatePersistentDisplay(graceContent(session, nowMillis, settings)),
-                SessionEffect.ScheduleGraceExpiry(session.lockedAt() + settings.gracePeriodMillis),
+                SessionEffect.ScheduleGraceExpiry(lockedAtMillis + settings.gracePeriodMillis),
             ),
         )
     }
@@ -228,12 +234,17 @@ object SessionReducer {
     private fun closeExpiredSession(session: Session): SessionEffect.CloseSession =
         SessionEffect.CloseSession(session.lockedAt(), SessionEndReason.GRACE_EXPIRED)
 
-    /** 잠금 시각으로부터 유예 시간이 아직 남았는지. 유예 0분이면 잠그는 순간 이미 거짓이다. */
+    /**
+     * 잠금 시각으로부터 유예 시간이 아직 남았는지. 경계는 스펙 3절·7절의 `gap ≤ 유예 시간`이라
+     * 딱 유예만큼 지난 순간까지는 세션이 이어진다.
+     *
+     * 유예 0분은 이 비교에 걸리지 않는다. 그 설정에서는 유예 중이 될 일 자체가 없다([lock]).
+     */
     private fun gracePeriodRemains(
         session: Session,
         nowMillis: Long,
         settings: TrackingSettings,
-    ): Boolean = nowMillis - session.lockedAt() < settings.gracePeriodMillis
+    ): Boolean = nowMillis - session.lockedAt() <= settings.gracePeriodMillis
 
     private fun activeContent(
         session: Session,

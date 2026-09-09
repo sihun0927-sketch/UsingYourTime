@@ -11,7 +11,7 @@ sealed interface SessionEffect {
      * 상시 표시를 [content]대로 게시하거나 갱신한다.
      *
      * 포그라운드 서비스의 알림이라 이 효과가 곧 `startForeground`다. 그래서 리듀서는 한 전이의
-     * 효과 목록에서 이것을 늘 맨 앞에 둔다. 뒤에 저장이 붙어도 알림이 미뤄지지 않는다.
+     * 효과 목록에서 이것을 늘 맨 앞에 둔다. 앞에 선 저장을 기다리다 알림이 늦어지지 않는다.
      */
     data class UpdatePersistentDisplay(val content: PersistentDisplayContent) : SessionEffect
 
