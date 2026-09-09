@@ -1,6 +1,9 @@
 # GitHub Pages(Jekyll) 설정. Pages 소스를 "Deploy from a branch › main › /docs"로 두면
 # 이 폴더가 사이트 루트가 되고, front matter가 있는 문서만 HTML로 변환된다.
 # 방침 페이지 주소는 privacy-policy.md의 permalink가 정한다.
+# 프로젝트 사이트라 사이트 루트가 /UsingYourTime이다. 테마 CSS 링크가 relative_url을
+# 쓰므로 baseurl이 없으면 스타일이 404가 난다.
+baseurl: /UsingYourTime
 title: UsingTime
 description: 잠금 해제 뒤 끊김 없이 사용한 시간을 알려주는 Android 앱
 theme: jekyll-theme-minimal

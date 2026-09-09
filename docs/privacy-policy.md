@@ -26,8 +26,8 @@ UsingTime은 개인정보를 **수집하지 않고, 어디로도 전송하지 �
 
 | 저장 항목 | 내용 | 저장소 |
 |---|---|---|
-| 설정 | 측정 켜짐 여부, 임계값, 유예 시간, 재알림 주기, 임계값 알림 사용 여부 | 앱 전용 저장 영역(DataStore) |
-| 세션 기록 | 연속 사용 세션의 시작·종료 시각, 마지막으로 측정이 살아 있던 시각, 잠금 시각, 종료 원인, 알림 시각과 횟수 | 앱 전용 데이터베이스(Room) |
+| 설정 | 측정 켜짐 여부, 임계값, 유예 시간, 재알림 주기, 임계값 알림 사용 여부, 재시작 안내를 띄운 시각 | 앱 전용 저장 영역(DataStore) |
+| 세션 기록 | 연속 사용 세션의 시작·종료 시각, 마지막으로 측정이 살아 있던 시각, 잠금 시각, 종료 원인, 알림 시각과 횟수, 이번 세션 알림 끄기 여부 | 앱 전용 데이터베이스(Room) |
 
 - 시각은 모두 기기 시계 기준의 숫자(epoch 밀리초)이며, 어떤 앱을 썼는지·무엇을 봤는지는 담지 않습니다.
 - 이 데이터는 앱 밖으로 나가지 않고, 화면으로 보여주는 기능도 v1에는 없습니다. 오직 연속 사용 시간을 계산하고 앱이 강제 종료되거나 기기가 재부팅된 뒤 이어서 측정하기 위해 씁니다.
@@ -85,8 +85,8 @@ UsingTime **collects no personal data and transmits nothing anywhere.** Everythi
 
 | Stored item | Contents | Storage |
 |---|---|---|
-| Settings | Whether tracking is on, threshold, grace period, re-alert interval, whether threshold alerts are enabled | App-private storage (DataStore) |
-| Session records | Start and end time of each continuous-use session, the time tracking was last alive, lock time, end reason, alert times and count | App-private database (Room) |
+| Settings | Whether tracking is on, threshold, grace period, re-alert interval, whether threshold alerts are enabled, when the restart notice was shown | App-private storage (DataStore) |
+| Session records | Start and end time of each continuous-use session, the time tracking was last alive, lock time, end reason, alert times and count, whether alerts are muted for the session | App-private database (Room) |
 
 - All times are numbers on your device's clock (epoch milliseconds). They contain nothing about which apps you opened or what you looked at.
 - The data never leaves the app, and v1 has no screen that displays it. It exists only to compute the current session duration and to resume correctly after a force-stop or a reboot.
