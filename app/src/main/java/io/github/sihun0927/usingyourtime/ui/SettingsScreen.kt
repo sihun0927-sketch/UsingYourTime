@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -31,13 +33,19 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 private const val LOG_TAG = "UsingTime"
 
 /**
- * 설정 화면. 상태 카드·설정·도움말은 이후 티켓에서 채우고, 지금은 맨 아래
- * 개인정보처리방침 행만 실제로 동작한다(스펙 5절).
- * Scaffold가 edge-to-edge 인셋을 처리한다.
+ * 설정 화면(스펙 5절). Scaffold가 edge-to-edge 인셋을 처리한다.
+ *
+ * 지금은 측정 시작·측정 중지 임시 버튼과 맨 아래 개인정보처리방침 행뿐이다. 상태 카드·설정·도움말은
+ * 이후 티켓에서 채우며, 그때 이 버튼은 상태 카드의 버튼으로 바뀐다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    trackingOn: Boolean,
+    onStartTracking: () -> Unit,
+    onPause: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -54,7 +62,15 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     .weight(1f),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(stringResource(R.string.settings_placeholder))
+                if (trackingOn) {
+                    OutlinedButton(onClick = onPause) {
+                        Text(stringResource(R.string.action_pause))
+                    }
+                } else {
+                    Button(onClick = onStartTracking) {
+                        Text(stringResource(R.string.action_start_tracking))
+                    }
+                }
             }
             HorizontalDivider()
             Text(
@@ -81,8 +97,16 @@ private fun openPrivacyPolicy(context: Context) {
 
 @Preview(showBackground = true)
 @Composable
-private fun SettingsScreenPreview() {
+private fun SettingsScreenOffPreview() {
     UsingTimeTheme {
-        SettingsScreen()
+        SettingsScreen(trackingOn = false, onStartTracking = {}, onPause = {})
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun SettingsScreenOnPreview() {
+    UsingTimeTheme {
+        SettingsScreen(trackingOn = true, onStartTracking = {}, onPause = {})
     }
 }

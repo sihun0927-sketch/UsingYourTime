@@ -30,11 +30,11 @@ User-initiated unlock-to-lock continuous usage timer. Runs only while the user k
   영문: `If the system stops the service, session detection stops and neither the persistent notification nor threshold alerts are delivered until the user opens the app again.`
 - **다른 FGS 타입을 쓰지 않는 이유**: 위치·미디어·통화·데이터 동기화 등 기존 타입 중 "잠금 해제~잠금 사이의 연속 사용 시간을 사용자가 켠 동안만 재는" 용도에 해당하는 것이 없다.
 
-manifest 반영 형태(서비스 티켓에서 이 모양으로 넣는다. 서비스 클래스 이름은 그 티켓에서 정한다):
+manifest 반영 형태(#19에서 아래 모양으로 들어갔다):
 
 ```xml
 <service
-    android:name=".tracking.<포그라운드 서비스 클래스>"
+    android:name=".tracking.TrackingService"
     android:exported="false"
     android:foregroundServiceType="specialUse">
     <property

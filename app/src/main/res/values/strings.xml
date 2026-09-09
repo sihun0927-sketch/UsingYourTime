@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">UsingTime</string>
-    <string name="settings_placeholder">설정은 아직 준비 중이에요</string>
+
+    <!-- 상시 표시 (스펙 4절) -->
+    <string name="notification_channel_tracking_name">상시 표시</string>
+    <string name="notification_channel_tracking_description">측정하는 동안 상태바에 계속 보이는 알림이에요</string>
+    <string name="persistent_display_title_active">연속 사용 중</string>
+
+    <!-- 설정 화면 (스펙 5절). 상태 카드가 들어오면 임시 버튼은 사라진다. -->
+    <string name="action_start_tracking">측정 시작</string>
+    <string name="action_pause">측정 중지</string>
     <string name="privacy_policy">개인정보처리방침</string>
     <string name="privacy_policy_url" translatable="false">https://sihun0927-sketch.github.io/UsingYourTime/privacy-policy</string>
 </resources>
