@@ -36,15 +36,14 @@ class MainActivity : ComponentActivity() {
 
                 SettingsScreen(
                     trackingOn = trackingOn,
-                    onToggleTracking = {
-                        when {
-                            trackingOn -> TrackingService.pause(this)
-                            needsNotificationPermission() ->
-                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-
-                            else -> TrackingService.startTracking(this)
+                    onStartTracking = {
+                        if (needsNotificationPermission()) {
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            TrackingService.startTracking(this)
                         }
                     },
+                    onPause = { TrackingService.pause(this) },
                 )
             }
         }

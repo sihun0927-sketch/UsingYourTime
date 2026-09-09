@@ -43,7 +43,7 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `세션 진행에서 측정 중지를 누르면 tracking_on을 끄고 서비스를 종료한다`() {
+    fun `세션 진행에서 측정 중지를 누르면 tracking_on을 false로 만들고 서비스를 종료한다`() {
         val reduction = reduce(activeSince(nowMillis - 60_000), SessionEvent.Pause)
 
         assertEquals(
@@ -56,11 +56,17 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `측정 꺼짐에서 측정 중지는 아무 일도 하지 않는다`() {
+    fun `측정 꺼짐에서 측정 중지가 와도 tracking_on을 false로 만들고 서비스를 종료한다`() {
         val reduction = reduce(SessionState.Off, SessionEvent.Pause)
 
         assertEquals(SessionState.Off, reduction.state)
-        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+        assertEquals(
+            listOf(
+                SessionEffect.SaveTrackingOn(trackingOn = false),
+                SessionEffect.StopService,
+            ),
+            reduction.effects,
+        )
     }
 
     @Test

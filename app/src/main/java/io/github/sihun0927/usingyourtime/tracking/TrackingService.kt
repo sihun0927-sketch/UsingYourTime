@@ -9,7 +9,6 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.sihun0927.usingyourtime.notification.PersistentDisplay
-import io.github.sihun0927.usingyourtime.session.Phase
 import io.github.sihun0927.usingyourtime.session.SessionEffect
 import io.github.sihun0927.usingyourtime.session.SessionEvent
 import io.github.sihun0927.usingyourtime.session.SessionReducer
@@ -50,18 +49,17 @@ class TrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (eventOf(intent?.action)) {
-            SessionEvent.StartTracking -> dispatch(SessionEvent.StartTracking)
-
-            SessionEvent.Pause ->
-                if (state.phase == Phase.Off) pauseWithoutSession() else dispatch(SessionEvent.Pause)
-
-            // `intent == null`인 START_STICKY 재시작과 알 수 없는 요청이 여기로 온다.
-            // 재동기화(스펙 7절)는 복구 티켓에서 붙으므로, 그때까지는 상시 표시 없이 남지 않도록 내린다.
+        when (val event = eventOf(intent?.action)) {
+            // `intent == null`인 START_STICKY 재시작과 알 수 없는 요청이 여기로 온다. 넣을 이벤트가
+            // 없으니 상시 표시도 띄울 수 없어 서비스를 내린다. 저장된 `tracking_on`은 건드리지 않는다.
+            // 측정은 강제 종료·재부팅을 넘어 이어져야 하고(`CONTEXT.md` 측정 시작), 그 재동기화는
+            // 스펙 7절대로 복구 티켓에서 붙는다.
             null -> {
-                Log.i(TAG, "재동기화 규칙이 아직 없어 서비스를 내린다: action=${intent?.action}")
+                Log.i(TAG, "넣을 이벤트가 없어 서비스를 내린다: action=${intent?.action}")
                 stopService()
             }
+
+            else -> dispatch(event)
         }
         return START_STICKY
     }
@@ -74,17 +72,9 @@ class TrackingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     /**
-     * 프로세스가 죽어 서비스가 새로 만들어졌는데 "측정 중지"가 온 경우다. 리듀서는 이미 측정 꺼짐이라
-     * 돌려줄 효과가 없지만 저장된 `tracking_on`은 켜진 채이므로 여기서 끄고 서비스를 내린다.
+     * 이벤트 출처가 메인 스레드의 [onStartCommand] 하나뿐이라 효과 목록은 넣은 순서대로 실행된다.
+     * 리시버·타이머가 이벤트를 넣기 시작하는 티켓에서 이 가정을 다시 봐야 한다.
      */
-    private fun pauseWithoutSession() {
-        Log.i(TAG, "열린 세션 없이 측정 중지가 왔다. tracking_on만 끄고 서비스를 내린다.")
-        serviceScope.launch {
-            settingsStore.setTrackingOn(false)
-            stopService()
-        }
-    }
-
     private fun dispatch(event: SessionEvent) {
         val reduction = SessionReducer.reduce(state, event, System.currentTimeMillis(), settings)
         state = reduction.state

@@ -21,7 +21,7 @@ object SessionReducer {
         settings: TrackingSettings,
     ): Reduction = when (event) {
         SessionEvent.StartTracking -> startTracking(state, nowMillis)
-        SessionEvent.Pause -> pause(state)
+        SessionEvent.Pause -> pause()
     }
 
     /**
@@ -42,16 +42,17 @@ object SessionReducer {
         )
     }
 
-    /** 세션 진행 → 측정 꺼짐. 열린 세션은 유예 없이 지금 닫힌다. */
-    private fun pause(state: SessionState): Reduction {
-        if (state.phase == Phase.Off) return Reduction(state)
-
-        return Reduction(
-            state = SessionState.Off,
-            effects = listOf(
-                SessionEffect.SaveTrackingOn(trackingOn = false),
-                SessionEffect.StopService,
-            ),
-        )
-    }
+    /**
+     * 세션 진행 → 측정 꺼짐. 열린 세션은 유예 없이 지금 닫힌다.
+     *
+     * 이미 측정 꺼짐이어도 같은 효과를 낸다. 프로세스가 죽어 서비스의 상태만 사라진 뒤에도
+     * 저장된 `tracking_on`은 켜진 채일 수 있어, 두 효과가 그 어긋남을 되돌린다.
+     */
+    private fun pause(): Reduction = Reduction(
+        state = SessionState.Off,
+        effects = listOf(
+            SessionEffect.SaveTrackingOn(trackingOn = false),
+            SessionEffect.StopService,
+        ),
+    )
 }

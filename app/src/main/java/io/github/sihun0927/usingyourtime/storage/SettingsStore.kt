@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /** 프로세스마다 하나여야 하는 DataStore 인스턴스. */
@@ -24,8 +23,6 @@ class SettingsStore(context: Context) {
 
     /** 측정이 켜져 있는지. 기본값 false. */
     val trackingOn: Flow<Boolean> = dataStore.data.map { it[TRACKING_ON] ?: false }
-
-    suspend fun readTrackingOn(): Boolean = trackingOn.first()
 
     suspend fun setTrackingOn(trackingOn: Boolean) {
         dataStore.edit { it[TRACKING_ON] = trackingOn }

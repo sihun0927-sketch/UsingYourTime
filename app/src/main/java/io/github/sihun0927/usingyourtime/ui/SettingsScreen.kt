@@ -20,14 +20,15 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 /**
  * 설정 화면(스펙 5절). Scaffold가 edge-to-edge 인셋을 처리한다.
  *
- * 지금은 측정을 켜고 끄는 임시 버튼 하나뿐이다. 상태 카드·설정·도움말은 이후 티켓에서 채우며,
+ * 지금은 측정 시작·측정 중지 임시 버튼 하나뿐이다. 상태 카드·설정·도움말은 이후 티켓에서 채우며,
  * 그때 이 버튼은 상태 카드의 버튼으로 바뀐다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     trackingOn: Boolean,
-    onToggleTracking: () -> Unit,
+    onStartTracking: () -> Unit,
+    onPause: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -41,11 +42,11 @@ fun SettingsScreen(
             contentAlignment = Alignment.Center,
         ) {
             if (trackingOn) {
-                OutlinedButton(onClick = onToggleTracking) {
+                OutlinedButton(onClick = onPause) {
                     Text(stringResource(R.string.action_pause))
                 }
             } else {
-                Button(onClick = onToggleTracking) {
+                Button(onClick = onStartTracking) {
                     Text(stringResource(R.string.action_start_tracking))
                 }
             }
@@ -57,7 +58,7 @@ fun SettingsScreen(
 @Composable
 private fun SettingsScreenOffPreview() {
     UsingTimeTheme {
-        SettingsScreen(trackingOn = false, onToggleTracking = {})
+        SettingsScreen(trackingOn = false, onStartTracking = {}, onPause = {})
     }
 }
 
@@ -65,6 +66,6 @@ private fun SettingsScreenOffPreview() {
 @Composable
 private fun SettingsScreenOnPreview() {
     UsingTimeTheme {
-        SettingsScreen(trackingOn = true, onToggleTracking = {})
+        SettingsScreen(trackingOn = true, onStartTracking = {}, onPause = {})
     }
 }
