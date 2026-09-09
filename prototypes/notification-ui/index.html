@@ -1,0 +1,447 @@
+<!--
+  PROTOTYPE (버리는 코드) — 티켓 #7: 상시 표시 + 임계값 알림 UI 프로토타입
+  세 가지 변형(A 시계형 / B 진행바형 / C 한 줄형)을 ?variant= 로 전환. 하단 플로팅 바 또는 ← → 키.
+  Android 알림 셰이드·설정 화면을 HTML로 흉내 낸 목업이며, 앱 코드가 아니다.
+-->
+<title>UsingYourTime 알림 시안</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Roboto:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F3;
+    --paper: #FFFFFF;
+    --ink: #1A2321;
+    --muted: #5C6B67;
+    --line: #D5DBD8;
+    --accent: #0E7C6B;
+    --accent-soft: #DCEFEA;
+    --chip: #E7ECEA;
+    --shadow: 0 1px 2px rgba(20, 30, 28, .08), 0 8px 24px rgba(20, 30, 28, .08);
+    /* 폰 목업 (단일 다크, Android 셰이드) */
+    --sh-back: #0B0D0E;
+    --sh-card: #202426;
+    --sh-card-hi: #2A3033;
+    --sh-ink: #E8EAED;
+    --sh-sub: #BFC5C3;
+    --sh-dim: #8D9593;
+    --sh-app: #7DD3C0;
+    --sh-warn: #F5B547;
+    --sh-line: #3A4144;
+    /* 설정 화면 목업 (Material 3 라이트) */
+    --m3-bg: #F7FAF8;
+    --m3-container: #E3ECE8;
+    --m3-container-hi: #D2E2DC;
+    --m3-primary: #0E7C6B;
+    --m3-on-primary: #FFFFFF;
+    --m3-ink: #191C1B;
+    --m3-muted: #3F4945;
+    --m3-outline: #BFC9C4;
+    --m3-warn: #8A5A00;
+    --m3-warn-bg: #FFE8B8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121716; --paper: #1B2220; --ink: #E6ECEA; --muted: #93A29D; --line: #2A3431;
+      --accent: #5FD3BC; --accent-soft: #1E3A34; --chip: #233029;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121716; --paper: #1B2220; --ink: #E6ECEA; --muted: #93A29D; --line: #2A3431;
+    --accent: #5FD3BC; --accent-soft: #1E3A34; --chip: #233029;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans KR", "Noto Sans KR", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.55;
+    padding: 28px 20px 110px;
+  }
+  main { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
+
+  header.top { display: grid; gap: 8px; max-width: 70ch; }
+  .eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 26px; font-weight: 600; margin: 0; line-height: 1.25; text-wrap: balance; }
+  .lede { color: var(--muted); margin: 0; }
+  .lede code, .notes code, td code { font-family: "IBM Plex Mono", monospace; font-size: .88em; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+
+  /* 변형 헤더 */
+  .variant-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+  .variant-key { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--accent); }
+  .variant-name { font-size: 20px; font-weight: 600; }
+  .variant-thesis { color: var(--muted); flex-basis: 100%; max-width: 70ch; }
+
+  /* 상태 칩 */
+  .phases { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .phases .lbl { font-size: 13px; color: var(--muted); margin-right: 4px; }
+  .chip { border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip:focus-visible, .sw button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 프레임 3열 */
+  .frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; align-items: start; }
+  .frame { display: grid; gap: 10px; }
+  .frame h2 { font-size: 13px; font-weight: 600; margin: 0; color: var(--muted); letter-spacing: .02em; }
+  .caption { font-size: 13px; color: var(--muted); max-width: 46ch; margin: 0; }
+  .caption b { color: var(--ink); font-weight: 600; }
+
+  /* 폰 외형 */
+  .phone { width: 100%; max-width: 360px; border-radius: 30px; overflow: hidden; box-shadow: var(--shadow); border: 6px solid #0E1112; background: var(--sh-back); font-family: Roboto, "Noto Sans KR", sans-serif; color: var(--sh-ink); }
+  .phone.short { max-height: 330px; }
+  .statusbar { display: flex; justify-content: space-between; padding: 10px 22px 4px; font-size: 13px; color: var(--sh-sub); }
+  .statusbar .sb-app { color: var(--sh-app); }
+  .shade { padding: 8px 10px 16px; display: grid; gap: 8px; }
+  .shade-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 4px; color: var(--sh-sub); font-size: 12px; }
+  .section-lbl { font-size: 11px; color: var(--sh-dim); padding: 6px 12px 0; letter-spacing: .04em; }
+
+  /* 알림 카드 */
+  .notif { background: var(--sh-card); border-radius: 22px; padding: 12px 16px 12px; display: grid; gap: 4px; }
+  .notif.headsup { background: var(--sh-card-hi); box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+  .n-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sh-sub); min-height: 20px; }
+  .n-icon { width: 16px; height: 16px; border-radius: 50%; background: var(--sh-app); flex: none; position: relative; }
+  .n-icon::after { content: ""; position: absolute; left: 7px; top: 3px; width: 2px; height: 6px; background: #0B0D0E; border-radius: 1px; }
+  .n-app { color: var(--sh-sub); }
+  .n-sub { color: var(--sh-sub); }
+  .n-sub::before { content: "•"; margin: 0 4px; color: var(--sh-dim); }
+  .n-time { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .n-time.chrono { color: var(--sh-app); font-weight: 500; }
+  .n-chev { width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.08); display: grid; place-items: center; font-size: 10px; color: var(--sh-sub); }
+  .n-title { font-size: 14px; font-weight: 500; color: var(--sh-ink); }
+  .n-title.big { font-size: 22px; font-weight: 500; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .n-text { font-size: 14px; color: var(--sh-sub); }
+  .n-text.bigtext { white-space: pre-line; line-height: 1.45; }
+  .n-warn { color: var(--sh-warn); }
+  .n-progress { height: 4px; background: rgba(255,255,255,.12); border-radius: 2px; margin: 6px 0 2px; overflow: hidden; }
+  .n-progress > span { display: block; height: 100%; background: var(--sh-app); border-radius: 2px; }
+  .n-progress.over > span { background: var(--sh-warn); }
+  .n-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .n-actions span { border: 1px solid var(--sh-line); border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 500; color: var(--sh-ink); }
+  .n-actions span.filled { background: var(--sh-app); color: #0B0D0E; border-color: var(--sh-app); }
+
+  /* heads-up 순간: 앱 화면 위 */
+  .appbg { position: relative; background: #17191B; min-height: 240px; padding: 8px 10px; }
+  .appbg .fake { position: absolute; inset: 0; padding: 70px 22px 0; display: grid; gap: 12px; align-content: start; opacity: .35; }
+  .appbg .fake i { display: block; height: 12px; border-radius: 6px; background: #3A4144; }
+  .appbg .fake i:nth-child(2) { width: 70%; } .appbg .fake i:nth-child(3) { width: 85%; } .appbg .fake i:nth-child(5) { width: 55%; }
+  .appbg .notif { position: relative; }
+  .none { display: grid; place-items: center; min-height: 240px; text-align: center; padding: 20px 26px; color: var(--sh-dim); font-size: 13px; line-height: 1.5; }
+  .none b { color: var(--sh-sub); display: block; font-size: 14px; margin-bottom: 4px; }
+
+  /* 잠금 화면 */
+  .lock { padding: 28px 18px 20px; display: grid; gap: 18px; background: radial-gradient(120% 70% at 30% 0%, #1F2A2E 0%, #0B0D0E 70%); }
+  .lock .clock { font-size: 64px; font-weight: 400; line-height: 1; letter-spacing: -.02em; color: var(--sh-ink); }
+  .lock .date { font-size: 14px; color: var(--sh-sub); margin-top: -8px; }
+  .lock .padlock { font-size: 12px; color: var(--sh-dim); text-align: center; }
+
+  /* 설정 화면 (M3 라이트) */
+  .app { background: var(--m3-bg); color: var(--m3-ink); font-family: Roboto, "Noto Sans KR", sans-serif; }
+  .app .statusbar { color: var(--m3-muted); }
+  .appbar { padding: 10px 20px 8px; font-size: 20px; font-weight: 500; }
+  .app .body { padding: 4px 16px 18px; display: grid; gap: 12px; }
+  .card { background: var(--m3-container); border-radius: 20px; padding: 16px 18px; display: grid; gap: 8px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .row .k { font-size: 13px; color: var(--m3-muted); }
+  .row .v { font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 500; background: var(--m3-container-hi); color: var(--m3-ink); }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--m3-primary); }
+  .pill.off i { background: var(--m3-outline); }
+  .pill.warn { background: var(--m3-warn-bg); color: var(--m3-warn); } .pill.warn i { background: var(--m3-warn); }
+  .btn { display: inline-flex; justify-content: center; align-items: center; border-radius: 999px; padding: 9px 18px; font-size: 14px; font-weight: 500; border: 1px solid var(--m3-primary); color: var(--m3-primary); }
+  .btn.filled { background: var(--m3-primary); color: var(--m3-on-primary); }
+  .btn.text { border-color: transparent; padding: 6px 10px; }
+  .hero-num { font-size: 44px; font-weight: 400; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .hero-num small { font-size: 18px; color: var(--m3-muted); margin-left: 4px; }
+  .ring { width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 15px; font-weight: 500; }
+  .ring > span { width: 74px; height: 74px; border-radius: 50%; background: var(--m3-container); display: grid; place-items: center; text-align: center; line-height: 1.1; }
+  .ring > span small { display: block; font-size: 11px; color: var(--m3-muted); font-weight: 400; }
+  .subline { font-size: 13px; color: var(--m3-muted); }
+  .muted-line { font-size: 13px; color: var(--m3-warn); }
+  .settings { display: grid; }
+  .settings .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; border-top: 1px solid var(--m3-container-hi); font-size: 14px; }
+  .settings .item:first-child { border-top: 0; }
+  .settings .item .val { color: var(--m3-muted); font-size: 13px; }
+  .toggle { width: 40px; height: 22px; border-radius: 11px; background: var(--m3-primary); position: relative; }
+  .toggle::after { content: ""; position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .banner { display: flex; align-items: center; gap: 12px; background: var(--m3-container); border-radius: 16px; padding: 12px 14px; }
+  .banner .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--m3-primary); flex: none; }
+  .banner .dot.off { background: var(--m3-outline); }
+  .banner .dot.warn { background: var(--m3-warn); }
+  .banner .txt { flex: 1; font-size: 14px; }
+  .banner .txt b { font-weight: 500; font-variant-numeric: tabular-nums; }
+  .banner .txt small { display: block; font-size: 12px; color: var(--m3-muted); }
+
+  /* 메모·비교표 */
+  .notes { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; display: grid; gap: 6px; max-width: 78ch; }
+  .notes h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  .notes li { color: var(--ink); }
+  .compare { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+  thead th { border-top: 0; background: var(--chip); font-weight: 600; font-size: 13px; }
+  th[scope="row"] { font-weight: 500; color: var(--muted); white-space: nowrap; }
+  td.cur { background: var(--accent-soft); }
+  .decisions { font-size: 13px; color: var(--muted); max-width: 78ch; }
+  .decisions b { color: var(--ink); }
+
+  /* 스위처 */
+  .sw { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; background: #101514; color: #F1F5F3; border-radius: 999px; padding: 6px 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.08); font-family: "IBM Plex Mono", monospace; font-size: 13px; z-index: 10; }
+  .sw button { background: transparent; border: 0; color: inherit; font: inherit; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; }
+  .sw button:hover { background: rgba(255,255,255,.1); }
+  .sw .lbl { padding: 0 8px; min-width: 130px; text-align: center; }
+  .sw .lbl b { color: #7DD3C0; font-weight: 500; }
+  @media (prefers-reduced-motion: no-preference) { .chip, .notif { transition: background-color .15s; } }
+</style>
+
+<main>
+  <header class="top">
+    <div class="eyebrow">Prototype · 티켓 #7 · 버리는 코드</div>
+    <h1>상시 표시와 임계값 알림, 어떤 모양이어야 하나</h1>
+    <p class="lede">세 변형을 <code>?variant=A|B|C</code>로 전환합니다. 위 칩으로 세션 상태를 바꾸면 세 화면이 함께 바뀝니다. 셰이드는 Pixel 계열 다크, 설정 화면은 Material 3 라이트를 흉내 냈습니다. 실제 색은 기기의 다이내믹 컬러를 따릅니다.</p>
+    <p class="decisions">고정된 결정: 상시 표시에는 액션 없음 · 임계값 알림은 별도 heads-up이며 액션 버튼은 <b>세션 알림 끄기</b> 하나 · 알림 탭은 설정 화면 · 잠금 중에는 알림을 보내지 않음 · 재알림 기본 15분. 변형이 다투는 것은 <b>정보 배치와 문구</b>뿐입니다.</p>
+  </header>
+
+  <section class="variant-head" id="vhead"></section>
+
+  <section class="phases" id="phases" aria-label="세션 상태"></section>
+
+  <section class="frames" id="frames"></section>
+
+  <section class="notes" id="notes"></section>
+
+  <section class="compare" id="compare"></section>
+</main>
+
+<nav class="sw" aria-label="변형 전환">
+  <button id="prev" aria-label="이전 변형">←</button>
+  <span class="lbl" id="swlbl"></span>
+  <button id="next" aria-label="다음 변형">→</button>
+</nav>
+
+<script>
+(() => {
+  const THRESHOLD = 30, INTERVAL = 15, GRACE = 3;
+
+  const PHASES = [
+    { id: 'before',  label: '임계값 전',           sec: 17*60+12, alert: 0, muted: false, locked: false },
+    { id: 'reach',   label: '임계값 도달 · 첫 알림', sec: 30*60+3,  alert: 1, muted: false, locked: false },
+    { id: 'realert', label: '재알림 · 2번째',        sec: 45*60+8,  alert: 2, muted: false, locked: false },
+    { id: 'muted',   label: '세션 알림 끄기 이후',   sec: 52*60+40, alert: 0, muted: true,  locked: false },
+    { id: 'locked',  label: '유예 중 · 잠금',        sec: 33*60+20, alert: 0, muted: false, locked: true, graceLeft: 2*60+10 },
+  ];
+
+  const pad = n => String(n).padStart(2, '0');
+  const clock = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60; return h ? `${h}:${pad(m)}:${pad(x)}` : `${m}:${pad(x)}`; };
+  const mins = s => Math.floor(s/60);
+  const minKo = s => { const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? `${h}시간 ${m}분` : `${m}분`; };
+  const longKo = s => `${minKo(s)} ${s%60}초`;
+  const over = p => mins(p.sec) - THRESHOLD;
+  const nextAlertIn = p => { const o = over(p); return o < 0 ? -o : INTERVAL - (o % INTERVAL); };
+
+  const SESSION_START = 17*60; // 17:00 잠금 해제로 세션 시작
+  const wall = p => { const t = SESSION_START + mins(p.sec); return `${Math.floor(t/60)}:${pad(t%60)}`; };
+  const statusbar = p => `<div class="statusbar"><span>${wall(p)}</span><span><span class="sb-app">◔</span> ▲ ▮ 82%</span></div>`;
+
+  const nHead = ({ sub = '', time = '', chrono = false }) =>
+    `<div class="n-head"><span class="n-icon"></span><span class="n-app">UsingYourTime</span>${sub ? `<span class="n-sub">${sub}</span>` : ''}<span class="n-time${chrono ? ' chrono' : ''}">${time}</span><span class="n-chev">⌄</span></div>`;
+
+  const actions = (label, filled) => `<div class="n-actions"><span class="${filled ? 'filled' : ''}">${label}</span></div>`;
+
+  const lockWrap = (p, card) => `${statusbar(p)}<div class="lock"><div><div class="clock">${wall(p)}</div><div class="date">9월 9일 수요일</div></div>${card}<div class="padlock">🔒 잠금 · 유예 ${clock(p.graceLeft)} 남음</div></div>`;
+  const shadeWrap = (p, alertCard, ongoingCard) => `${statusbar(p)}<div class="shade"><div class="shade-head"><span>수요일 9월 9일</span><span>⚙</span></div>${alertCard ? `<div class="section-lbl">알림</div>${alertCard}` : ''}<div class="section-lbl">진행 중</div>${ongoingCard}</div>`;
+  const headsupWrap = (p, card, reason) => card
+    ? `${statusbar(p)}<div class="appbg"><div class="fake"><i></i><i></i><i></i><i></i><i></i></div>${card}</div>`
+    : `${statusbar(p)}<div class="none"><b>이 상태에서는 heads-up 없음</b>${reason}</div>`;
+  const noAlertReason = p => p.locked ? '잠금 중에는 임계값 알림·재알림을 보내지 않고, 다음 잠금 해제 직후 판정합니다.'
+    : p.muted ? '세션 알림 끄기를 눌러 이 세션이 끝날 때까지 알림이 멈췄습니다.' : '연속 사용 시간이 아직 임계값 30분 전입니다.';
+
+  const settingsList = `<div class="card settings">
+      <div class="item"><span>임계값</span><span class="val">30분</span></div>
+      <div class="item"><span>유예 시간</span><span class="val">3분</span></div>
+      <div class="item"><span>재알림 주기</span><span class="val">15분</span></div>
+      <div class="item"><span>임계값 알림</span><span class="toggle" aria-label="켜짐"></span></div>
+    </div>`;
+  const appWrap = (p, card) => `${statusbar(p, true)}<div class="appbar">UsingYourTime</div><div class="body">${card}${settingsList}</div>`;
+
+  /* ---------- 변형 A: 시계형 ---------- */
+  const A = {
+    key: 'A', name: '시계형',
+    thesis: '상시 표시는 시계처럼 읽힌다. 헤더의 시각 자리에 경과 시간이 초 단위로 흐르고, 본문은 임계값까지의 거리만 말한다. 임계값 알림은 "몇 분째"를 제목으로, 다음 알림까지를 본문으로.',
+    ongoing(p) {
+      const text = p.locked ? `잠금 중 · ${GRACE}분 안에 다시 켜면 이어져요`
+        : p.muted ? `<span class="n-warn">임계값 ${THRESHOLD}분 초과</span> · 이번 세션 알림 꺼짐`
+        : over(p) >= 0 ? `<span class="n-warn">임계값 ${THRESHOLD}분을 ${over(p)}분 넘겼어요</span>`
+        : `임계값 ${THRESHOLD}분까지 ${nextAlertIn(p)}분 남음`;
+      return `<div class="notif">${nHead({ time: clock(p.sec), chrono: true })}<div class="n-title">연속 사용 중</div><div class="n-text">${text}</div></div>`;
+    },
+    alert(p, hu) {
+      const n = p.alert;
+      const title = `${mins(p.sec)}분째 연속 사용 중`;
+      const text = n === 1 ? `잠깐 눈을 쉬어 주세요. 계속 쓰면 ${INTERVAL}분 뒤 다시 알려요.` : `${n}번째 알림 · ${INTERVAL}분 뒤 다시 알려요`;
+      return `<div class="notif${hu ? ' headsup' : ''}">${nHead({ time: '지금' })}<div class="n-title">${title}</div><div class="n-text">${text}</div>${actions('이번 세션 알림 끄기')}</div>`;
+    },
+    card(p) {
+      const status = p.locked ? '<span class="pill"><i></i>측정 중 · 잠금</span>' : '<span class="pill"><i></i>측정 중</span>';
+      return `<div class="card">
+        <div class="row"><span class="k">측정 상태</span>${status}</div>
+        <div class="row"><span class="k">연속 사용 시간</span><span class="v">${longKo(p.sec)}</span></div>
+        ${p.muted ? '<div class="muted-line">이번 세션 알림 꺼짐 · 세션이 끝나면 다시 켜져요</div>' : ''}
+        <div class="row" style="margin-top:6px"><span class="k">${over(p) >= 0 ? `임계값 ${THRESHOLD}분 초과` : `임계값까지 ${nextAlertIn(p)}분`}</span><span class="btn">측정 중지</span></div>
+      </div>`;
+    },
+    notes: [
+      '상시 표시: <code>setUsesChronometer(true)</code> + <code>setWhen(세션 시작 시각)</code>. 헤더의 "n분 전" 자리에 경과 시간이 1초마다 시스템이 그려 주므로 서비스가 알림을 다시 올리지 않아도 된다. 본문은 분 단위로만 바뀌어 1분에 1회 <code>notify()</code>.',
+      '유예 중에도 시계는 계속 흐른다(도메인 정의: 연속 사용 시간은 유예 구간 포함). 잠금 화면에서 그대로 보인다.',
+      '임계값 알림: 제목에 "n분째", 본문에 "다음 알림까지". 재알림은 같은 알림 id를 다시 올려 셰이드에 1장만 남긴다.',
+      '약점: 헤더의 작은 숫자가 정보의 중심이라 시선을 끌기 약하다. 시:분:초 표기는 "시간" 앱처럼 보여 "얼마나 넘겼는지"가 한눈에 안 들어온다.',
+    ],
+  };
+
+  /* ---------- 변형 B: 진행바형 ---------- */
+  const B = {
+    key: 'B', name: '진행바형',
+    thesis: '임계값을 향해 차오르는 막대가 주인공. 제목이 "47분 / 30분"처럼 목표 대비 위치를 말하고, 넘기면 막대가 경고색으로 바뀐다. 임계값 알림은 긴 문장으로 왜 울렸고 어떻게 끝낼 수 있는지 설명한다.',
+    ongoing(p) {
+      const m = mins(p.sec), o = over(p), ratio = Math.min(1, m / THRESHOLD);
+      const title = o >= 0 ? `연속 사용 ${m}분 · 임계값 ${THRESHOLD}분 초과` : `연속 사용 ${m}분 / ${THRESHOLD}분`;
+      const text = p.locked ? `잠금 중 · 유예 ${clock(p.graceLeft)} 남음`
+        : p.muted ? '알림 꺼짐 · 세션이 끝나면 다시 켜져요'
+        : o >= 0 ? `초과 ${o}분 · 다음 알림 ${nextAlertIn(p)}분 후` : `${THRESHOLD}분에 알림`;
+      return `<div class="notif">${nHead({ time: p.locked ? '' : '지금' })}<div class="n-title">${title}</div><div class="n-progress${o >= 0 ? ' over' : ''}"><span style="width:${ratio*100}%"></span></div><div class="n-text">${text}</div></div>`;
+    },
+    alert(p, hu) {
+      const n = p.alert, m = mins(p.sec);
+      const title = n === 1 ? `연속 사용 시간이 ${THRESHOLD}분에 도달했어요` : `아직 쓰고 있어요 · ${m}분째`;
+      const big = n === 1
+        ? `잠금 해제 후 ${THRESHOLD}분째 쓰고 있어요.\n지금 잠그고 ${GRACE}분 넘게 쉬면 세션이 끝나요. 계속 쓰면 ${INTERVAL}분마다 다시 알려요.`
+        : `${n}번째 알림이에요. ${INTERVAL}분마다 반복돼요.\n이번 세션만 조용히 하려면 아래 버튼을 누르세요.`;
+      return `<div class="notif${hu ? ' headsup' : ''}">${nHead({ time: '지금' })}<div class="n-title">${title}</div><div class="n-text${hu ? '' : ' bigtext'}">${hu ? big.split('\n')[0] : big}</div>${actions('세션 알림 끄기', true)}</div>`;
+    },
+    card(p) {
+      const m = mins(p.sec), o = over(p), deg = Math.min(1, m / THRESHOLD) * 360;
+      const ringColor = o >= 0 ? 'var(--m3-warn)' : 'var(--m3-primary)';
+      const status = p.locked ? '잠금 중 · 유예' : p.muted ? '측정 중 · 이번 세션 알림 꺼짐' : o >= 0 ? `임계값 ${o}분 초과` : `임계값까지 ${nextAlertIn(p)}분`;
+      return `<div class="card">
+        <div class="row">
+          <div><div class="hero-num">${m}<small>분</small></div><div class="subline">연속 사용 중</div><div class="${p.muted ? 'muted-line' : 'subline'}">${status}</div></div>
+          <div class="ring" style="background:conic-gradient(${ringColor} ${deg}deg, var(--m3-container-hi) 0)"><span>${THRESHOLD}분<small>임계값</small></span></div>
+        </div>
+        <div class="row" style="margin-top:4px"><span class="pill${p.muted ? ' warn' : ''}"><i></i>측정 켜짐</span><span class="btn filled">측정 중지</span></div>
+      </div>`;
+    },
+    notes: [
+      '상시 표시: <code>setProgress(THRESHOLD, elapsedMin, false)</code>. 막대는 시스템이 그려 주지만 값은 서비스가 1분마다 <code>notify()</code>로 올린다. 넘긴 뒤에는 막대를 가득 채우고 색만 바꿀 수 없어(진행바 색은 앱 accent 고정) 실제로는 <b>막대 대신 제목의 "초과"만으로 상태를 전달</b>하게 된다. 목업의 경고색은 커스텀 <code>RemoteViews</code>를 써야 나온다.',
+      '임계값 알림: <code>BigTextStyle</code>. heads-up에는 첫 줄만, 셰이드에서 펼치면 전문. 재알림은 두 번째 문안.',
+      '상태 카드: 큰 숫자 + 원형 게이지. 설정 화면이 "대시보드"처럼 보여 앱을 열 이유가 생기는 대신, 화면 1개짜리 앱치고 무겁다.',
+      '약점: 시간이 임계값을 넘으면 막대가 의미를 잃는다. 대부분의 세션이 30분을 넘기기 전에 끝나면 괜찮고, 넘기는 게 일상이면 막대가 늘 가득 차 있다.',
+    ],
+  };
+
+  /* ---------- 변형 C: 한 줄형 ---------- */
+  const C = {
+    key: 'C', name: '한 줄형',
+    thesis: '숫자 하나만 크게. 상시 표시는 제목이 곧 시간이고 나머지는 헤더 부제(subText) 한 토막. 임계값 알림도 제목 한 줄, 본문 없음. 알림이 아니라 상태바의 작은 계기판처럼 취급한다.',
+    ongoing(p) {
+      const o = over(p);
+      const title = o >= 0 ? `${minKo(p.sec)} <span class="n-warn">· ${THRESHOLD}분 초과</span>` : minKo(p.sec);
+      const sub = p.locked ? '잠금 중 · 유예' : p.muted ? '임계값 알림 꺼짐 (이번 세션)' : `연속 사용 · 임계값 ${THRESHOLD}분`;
+      return `<div class="notif">${nHead({ sub })}<div class="n-title big">${title}</div></div>`;
+    },
+    alert(p, hu) {
+      const n = p.alert;
+      return `<div class="notif${hu ? ' headsup' : ''}">${nHead({ sub: n === 1 ? '' : `${n}번째`, time: '지금' })}<div class="n-title">${mins(p.sec)}분 연속 사용</div>${actions('이 세션은 그만')}</div>`;
+    },
+    card(p) {
+      const o = over(p);
+      const dot = p.locked ? 'off' : p.muted || o >= 0 ? 'warn' : '';
+      const sub = p.locked ? `잠금 중 · 유예 ${clock(p.graceLeft)} 남음` : p.muted ? '이번 세션 알림 꺼짐' : o >= 0 ? `임계값 ${THRESHOLD}분을 ${o}분 넘김` : `임계값까지 ${nextAlertIn(p)}분`;
+      return `<div class="banner"><span class="dot ${dot}"></span><span class="txt">측정 중 · <b>${longKo(p.sec)}</b><small>${sub}</small></span><span class="btn text">중지</span></div>`;
+    },
+    notes: [
+      '상시 표시: <code>setContentTitle("47분")</code> + <code>setSubText(...)</code>, <code>setShowWhen(false)</code>. 본문 없음이라 알림 높이가 가장 낮고, 잠금 화면·펼치지 않은 셰이드에서도 숫자가 보인다. 1분마다 <code>notify()</code>.',
+      '큰 글자 제목은 표준 템플릿이 아니다. 실제로는 일반 제목 크기(14sp)로 나오며, 목업의 22sp는 <b>커스텀 <code>RemoteViews</code>를 쓸 때만</b> 가능하다. 표준 크기로 갈지 커스텀으로 갈지가 이 안의 핵심 판단.',
+      '임계값 알림: 본문 없음. 재알림 회차는 헤더 부제로. 액션 문구는 가장 짧은 "이 세션은 그만".',
+      '약점: 설명이 없어 처음 보는 사람은 "47분"이 무엇인지 모른다. 온보딩(상태 카드의 설명 문단)이 이 정보를 대신 져야 한다.',
+    ],
+  };
+
+  const VARIANTS = { A, B, C };
+  const ORDER = ['A', 'B', 'C'];
+
+  const compareRows = [
+    ['상시 표시의 시간', { A: '헤더 시계 <code>47:12</code>, 초 단위 자동', B: '제목 "47분 / 30분", 1분 갱신', C: '제목 "47분" 크게, 1분 갱신' }],
+    ['임계값 초과 표현', { A: '본문 한 줄 "N분 넘겼어요"', B: '막대 가득 + 제목 "초과"', C: '제목 옆 "· 30분 초과"' }],
+    ['알림 갱신 비용', { A: '본문만 1분 1회', B: '진행바 값 1분 1회', C: '제목 1분 1회' }],
+    ['임계값 알림 문구', { A: '제목 "n분째" + 다음 알림 예고', B: '설명형 BigText 2~3문장', C: '제목 한 줄, 본문 없음' }],
+    ['액션 버튼 문구', { A: '이번 세션 알림 끄기', B: '세션 알림 끄기 (채움)', C: '이 세션은 그만' }],
+    ['상태 카드', { A: '항목 3줄 목록', B: '큰 숫자 + 원형 게이지', C: '한 줄 배너' }],
+    ['표준 템플릿으로 충분한가', { A: '예', B: '막대 색 변경은 커스텀 필요', C: '큰 글자는 커스텀 필요' }],
+  ];
+
+  /* ---------- 렌더 ---------- */
+  const $ = s => document.querySelector(s);
+  const params = new URLSearchParams(location.search);
+  let variant = ORDER.includes(params.get('variant')) ? params.get('variant') : (ORDER.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'A');
+  let phaseId = PHASES.some(p => p.id === params.get('phase')) ? params.get('phase') : 'realert';
+
+  function render() {
+    const v = VARIANTS[variant];
+    const p = PHASES.find(x => x.id === phaseId);
+
+    $('#vhead').innerHTML = `<span class="variant-key">variant=${v.key}</span><span class="variant-name">${v.name}</span><p class="variant-thesis">${v.thesis}</p>`;
+
+    $('#phases').innerHTML = `<span class="lbl">세션 상태</span>` + PHASES.map(x =>
+      `<button class="chip" data-phase="${x.id}" aria-pressed="${x.id === phaseId}">${x.label}</button>`).join('');
+
+    const hasAlert = p.alert > 0;
+    const alertShade = hasAlert ? v.alert(p, false) : '';
+    const shade = p.locked ? lockWrap(p, v.ongoing(p)) : shadeWrap(p, alertShade, v.ongoing(p));
+
+    $('#frames').innerHTML = `
+      <div class="frame"><h2>① heads-up 순간 (다른 앱 위)</h2>
+        <div class="phone short">${headsupWrap(p, hasAlert ? v.alert(p, true) : null, noAlertReason(p))}</div>
+        <p class="caption">${hasAlert ? '<b>IMPORTANCE_HIGH</b> 채널. 소리·진동과 함께 몇 초 떠 있다가 셰이드로 내려갑니다. 버튼은 여기서도 눌립니다.' : '알림이 없을 때는 상시 표시만 상태바 아이콘으로 남습니다.'}</p>
+      </div>
+      <div class="frame"><h2>② ${p.locked ? '잠금 화면 (유예 중)' : '알림 셰이드를 내렸을 때'}</h2>
+        <div class="phone">${shade}</div>
+        <p class="caption">${p.locked ? '유예 중에도 <b>상시 표시는 계속 흐르고</b> 임계값 알림은 없습니다. 유예가 지나면 둘 다 사라집니다.' : hasAlert ? '임계값 알림(위)과 상시 표시(아래)는 <b>별개 알림</b>. 위는 지울 수 있고, 아래는 진행 중 그룹에 고정됩니다.' : '상시 표시만 진행 중 그룹에 고정. 액션 버튼은 없고, 탭하면 설정 화면이 열립니다.'}</p>
+      </div>
+      <div class="frame"><h2>③ 설정 화면 상단 상태 카드</h2>
+        <div class="phone app">${appWrap(p, v.card(p))}</div>
+        <p class="caption">앱 아이콘·상시 표시 탭·임계값 알림 탭이 전부 이 화면으로 옵니다. 카드 항목 3개(상태·연속 사용 시간·버튼 1개)는 #14 결정, 배치만 변형마다 다릅니다.</p>
+      </div>`;
+
+    $('#notes').innerHTML = `<h3>${v.key} 구현 메모 (표준 Notification 템플릿 기준)</h3><ul>${v.notes.map(n => `<li>${n}</li>`).join('')}</ul>`;
+
+    $('#compare').innerHTML = `<table><thead><tr><th>비교 축</th>${ORDER.map(k => `<th${k === variant ? ' class="cur"' : ''}>${k} ${VARIANTS[k].name}</th>`).join('')}</tr></thead><tbody>${
+      compareRows.map(([h, c]) => `<tr><th scope="row">${h}</th>${ORDER.map(k => `<td${k === variant ? ' class="cur"' : ''}>${c[k]}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+
+    $('#swlbl').innerHTML = `<b>${v.key}</b> · ${v.name}`;
+    document.title = 'UsingYourTime 알림 시안';
+
+    document.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { phaseId = b.dataset.phase; sync(); }));
+  }
+
+  function sync() {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set('variant', variant); u.searchParams.set('phase', phaseId);
+      history.replaceState(null, '', u);
+    } catch (e) { location.hash = variant; }
+    render();
+  }
+  function step(d) { variant = ORDER[(ORDER.indexOf(variant) + d + ORDER.length) % ORDER.length]; sync(); }
+
+  $('#prev').addEventListener('click', () => step(-1));
+  $('#next').addEventListener('click', () => step(1));
+  document.addEventListener('keydown', e => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.key === 'ArrowLeft') step(-1);
+    if (e.key === 'ArrowRight') step(1);
+  });
+
+  render();
+})();
+</script>
