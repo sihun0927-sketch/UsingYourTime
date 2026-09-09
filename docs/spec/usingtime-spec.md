@@ -254,7 +254,7 @@ START_STICKY 재시작(에뮬레이터에서 2초 안에 되살아나며 `onStar
 | 언어·빌드 | Kotlin/JVM, Gradle Kotlin DSL, 버전 카탈로그, 단일 `app` 모듈 |
 | UI | Jetpack Compose + Material 3 |
 | 설정 저장 | Jetpack DataStore (Preferences) |
-| 세션 기록 | Room (화면 없음, 기기 내 저장만) |
+| 세션 기록 | Room (화면 없음, 기기 내 저장만). 컴파일러는 KSP |
 | DI | 없음 (수동 조립) |
 | 동시성 | Kotlin coroutines |
 | 테스트 | 세션 상태 클래스 JUnit + `kotlinx-coroutines-test`. 서비스·리시버·알림은 실기기 수동 검증. 계측 테스트 없음 |

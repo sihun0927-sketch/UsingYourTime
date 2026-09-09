@@ -25,8 +25,8 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 /**
  * 설정 화면(스펙 5절). 앱의 유일한 화면이다. Scaffold가 edge-to-edge 인셋을 처리한다.
  *
- * 지금은 맨 위 상태 카드와 맨 아래 개인정보처리방침 행뿐이다. 그 사이에 들어올 설정(임계값·유예
- * 시간·재알림 주기·임계값 알림 토글)과 도움말 섹션은 각 티켓에서 채운다.
+ * 위에서부터 상태 카드, 설정, 개인정보처리방침 행이다. 나머지 설정(임계값·재알림 주기·임계값 알림
+ * 토글)과 도움말 섹션은 각 티켓에서 채운다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,8 +34,10 @@ fun SettingsScreen(
     trackingOn: Boolean,
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
+    graceMinutes: Int,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
+    onGraceMinutesChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -55,6 +57,11 @@ fun SettingsScreen(
                 onStartTracking = onStartTracking,
                 onPause = onPause,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            )
+            GracePeriodSetting(
+                graceMinutes = graceMinutes,
+                onGraceMinutesChange = onGraceMinutesChange,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
             Spacer(modifier = Modifier.weight(1f))
             HorizontalDivider()
@@ -78,8 +85,10 @@ private fun SettingsScreenOffPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
+            graceMinutes = 3,
             onStartTracking = {},
             onPause = {},
+            onGraceMinutesChange = {},
         )
     }
 }
@@ -92,8 +101,10 @@ private fun SettingsScreenOnPreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * 1_000L,
             notificationPermission = NotificationPermission.Granted,
+            graceMinutes = 3,
             onStartTracking = {},
             onPause = {},
+            onGraceMinutesChange = {},
         )
     }
 }

@@ -14,10 +14,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import io.github.sihun0927.usingyourtime.session.TrackingSettings
 import io.github.sihun0927.usingyourtime.storage.SettingsStore
 import io.github.sihun0927.usingyourtime.tracking.TrackingService
 import io.github.sihun0927.usingyourtime.tracking.TrackingStatus
 import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
+import kotlinx.coroutines.launch
 
 /** 앱의 유일한 액티비티. 설정 화면 하나만 띄운다(스펙 5절). */
 class MainActivity : ComponentActivity() {
@@ -44,6 +47,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             UsingTimeTheme {
                 val trackingOn by settingsStore.trackingOn.collectAsState(initial = false)
+                val settings by settingsStore.settings.collectAsState(initial = TrackingSettings())
                 val sessionStartedAtMillis by TrackingStatus.sessionStartedAtMillis.collectAsState()
                 val notificationPermissionRequest = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
@@ -61,6 +65,7 @@ class MainActivity : ComponentActivity() {
                     trackingOn = trackingOn,
                     sessionStartedAtMillis = sessionStartedAtMillis,
                     notificationPermission = notificationPermission,
+                    graceMinutes = settings.graceMinutes,
                     onStartTracking = {
                         when (notificationPermission) {
                             NotificationPermission.Granted -> TrackingService.startTracking(this)
@@ -71,6 +76,11 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onPause = { TrackingService.pause(this) },
+                    // 저장이 끝나는 즉시 위의 흐름으로 새 값이 돌아오고, 서비스도 같은 흐름을
+                    // 구독하고 있어 다음 판정부터 새 유예 시간을 쓴다(스펙 3절).
+                    onGraceMinutesChange = { minutes ->
+                        lifecycleScope.launch { settingsStore.setGraceMinutes(minutes) }
+                    },
                 )
             }
         }

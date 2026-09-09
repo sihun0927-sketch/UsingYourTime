@@ -9,9 +9,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * 설정 화면이 열린 세션을 읽는 창구(스펙 5절 상태 카드). [TrackingService]가 리듀서에서 나온 새
  * 상태를 여기에 흘려보내고, 같은 프로세스의 화면이 [sessionStartedAtMillis]를 구독한다.
  *
- * 열린 세션은 아직 어디에도 저장되지 않아(스펙 8절 Room `sessions`는 복구 티켓 #27) 프로세스
- * 안에만 있다. 그래서 서비스가 죽고 화면만 새로 뜬 경우에는 `tracking_on`이 켜진 채여도 null이고
- * 상태 카드가 연속 사용 시간을 "—"로 둔다. 그 어긋남을 되돌리는 일은 재기동 티켓(#28)이 한다.
+ * 열린 세션은 Room `sessions`에도 남지만(#21), 그 행을 읽어 상태를 되살리는 것은 복구 티켓 #27의
+ * 재동기화다. 그래서 서비스가 죽고 화면만 새로 뜬 경우에는 `tracking_on`이 켜진 채여도 여기는
+ * null이고, 상태 카드가 연속 사용 시간을 "세션 없음"으로 둔다. 그 어긋남을 되돌리는 일은 #27·#28.
  *
  * 결정 배경은 `docs/adr/0001-ui-reads-open-session-from-process-holder.md`.
  */
