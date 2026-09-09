@@ -10,21 +10,21 @@
 
 ## 현재 진행 상황
 
-스펙 확정 단계입니다. 아직 앱 코드는 없습니다.
+구현 진행 중입니다. 스펙의 권장 구현 순서를 따라 티켓 단위로 만들고 있습니다.
 
 | 항목 | 상태 |
 |------|------|
 | 저장소 초기화 · LICENSE (MIT) | 완료 |
 | 플랫폼 선정 | 완료 (Android 단독, Kotlin) |
 | 요구사항 · 스펙 | 완료 ([docs/spec/usingtime-spec.md](docs/spec/usingtime-spec.md)) |
-| 구현 | 진행 전 |
+| 구현 | 진행 중 (골격 · CI 완료) |
 | 스토어 등록 | 진행 전 |
 
 ## 다음 할 일
 
 스펙의 [권장 구현 순서](docs/spec/usingtime-spec.md#11-권장-구현-순서)를 따른다.
 
-1. 프로젝트 골격 (Gradle · 권한 · CI)
+1. ~~프로젝트 골격 (Gradle · 권한 · CI)~~ 완료
 2. 순수 Kotlin 세션 상태 머신 + JUnit
 3. 저장 (DataStore · Room)
 4. 포그라운드 서비스 · 리시버 · 타이머

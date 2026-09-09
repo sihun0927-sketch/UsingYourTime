@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UsingTime</string>
+    <string name="settings_placeholder">설정은 아직 준비 중이에요</string>
+</resources>
