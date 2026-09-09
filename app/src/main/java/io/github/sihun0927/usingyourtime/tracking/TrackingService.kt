@@ -64,7 +64,13 @@ class TrackingService : Service() {
         return START_STICKY
     }
 
+    /**
+     * 서비스가 사라지면 열린 세션도 프로세스에서 사라진다. 스스로 내려간 경우든 시스템이 죽인
+     * 경우든 화면이 없는 세션을 계속 보여주지 않도록 창구를 비운다.
+     */
     override fun onDestroy() {
+        state = SessionState.Off
+        TrackingStatus.publish(state)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -78,6 +84,7 @@ class TrackingService : Service() {
     private fun dispatch(event: SessionEvent) {
         val reduction = SessionReducer.reduce(state, event, System.currentTimeMillis(), settings)
         state = reduction.state
+        TrackingStatus.publish(state)
         serviceScope.launch {
             reduction.effects.forEach { execute(it) }
         }

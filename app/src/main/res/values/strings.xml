@@ -7,9 +7,19 @@
     <string name="notification_channel_tracking_description">측정하는 동안 상태바에 계속 보이는 알림이에요</string>
     <string name="persistent_display_title_active">연속 사용 중</string>
 
-    <!-- 설정 화면 (스펙 5절). 상태 카드가 들어오면 임시 버튼은 사라진다. -->
+    <!-- 상태 카드 (스펙 5절) -->
+    <string name="status_card_tracking_label">측정 상태</string>
+    <string name="status_card_tracking_off">꺼짐</string>
+    <string name="status_card_tracking_on">켜짐</string>
+    <string name="status_card_session_duration_label">연속 사용 시간</string>
+    <string name="status_card_session_duration_none">—</string>
+    <string name="status_card_off_description">잠금 해제한 뒤 계속 사용한 시간을 상태바에 보여주고, 정한 시간이 지나면 알려드려요.</string>
+    <string name="status_card_notification_permission_required">연속 사용 시간을 상태바에 보여주려면 알림 권한이 필요해요</string>
+    <string name="status_card_notification_permission_denied">알림 권한이 꺼져 있어 측정을 시작할 수 없어요 · 설정에서 켜기</string>
     <string name="action_start_tracking">측정 시작</string>
     <string name="action_pause">측정 중지</string>
+
+    <!-- 개인정보처리방침 행 (스펙 5절) -->
     <string name="privacy_policy">개인정보처리방침</string>
     <string name="privacy_policy_url" translatable="false">https://sihun0927-sketch.github.io/UsingYourTime/privacy-policy</string>
 </resources>
