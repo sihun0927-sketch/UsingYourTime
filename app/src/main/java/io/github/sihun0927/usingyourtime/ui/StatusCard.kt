@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import io.github.sihun0927.usingyourtime.R
 import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** 연속 사용 시간을 다시 그리는 주기. 1초 눈금이 초 경계에 맞춰 올라간다. */
 private const val TICK_MILLIS = 1_000L
@@ -168,17 +171,18 @@ private fun elapsedSeconds(sessionStartedAtMillis: Long): Long {
 }
 
 /**
- * 재시작 안내 줄의 시각 표기(스펙 7절 "HH:MM에 측정이 중단됐다가").
+ * 재시작 안내 줄의 시각 표기. 스펙 7절 문구의 "HH:MM" 그대로 24시간제 두 자리다.
  *
- * 자릿수를 직접 짜지 않고 [DateUtils]에 맡긴다. 사용자가 12시간제를 쓰면 "오후 3:04", 24시간제면
- * "15:04"로 나와, 같은 기기의 시계·알림에서 보던 모양 그대로다.
+ * 기기의 12/24시간제 설정을 따르지 않는다. 따르게 하면 12시간제 기기에서 "5:49 AM에 측정이
+ * 중단됐다가…"처럼 로캘이 정한 영문 표기가 한국어 문장 가운데 끼어든다(에뮬레이터에서 확인).
+ * 앱 문자열이 한국어 하나뿐이라 시각만 로캘을 따를 이유가 없다.
  */
-@Composable
-private fun formatTime(atMillis: Long): String = DateUtils.formatDateTime(
-    LocalContext.current,
-    atMillis,
-    DateUtils.FORMAT_SHOW_TIME,
+private fun formatTime(atMillis: Long): String = TIME_FORMATTER.format(
+    Instant.ofEpochMilli(atMillis).atZone(ZoneId.systemDefault()),
 )
+
+/** [formatTime]의 형식. 로캘에 기대지 않도록 패턴을 고정한다. */
+private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
 
 /**
  * 알림 권한 안내 줄(스펙 5절). 요청 전에는 왜 필요한지, 거부 뒤에는 어디서 켜는지 알린다.
