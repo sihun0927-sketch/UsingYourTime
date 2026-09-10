@@ -30,8 +30,25 @@ sealed interface SessionEffect {
      */
     data class SaveLockedAt(val lockedAtMillis: Long?) : SessionEffect
 
+    /**
+     * 열린 세션 행의 마지막 생존 시각을 적는다. 추정 종료 시각의 나머지 재료다(스펙 7절).
+     *
+     * 세션 진행 중 `1분 tick`마다 나온다. 유예 중에는 나오지 않는다. 그때는 잠금 시각이 이미
+     * 관측한 값으로 적혀 있어 heartbeat가 더 말해 줄 것이 없기 때문이다.
+     */
+    data class SaveLastAliveAt(val lastAliveAtMillis: Long) : SessionEffect
+
     /** 열린 세션 행을 [endedAtMillis]·[reason]으로 닫는다. */
     data class CloseSession(val endedAtMillis: Long, val reason: SessionEndReason) : SessionEffect
+
+    /**
+     * DataStore의 `restart_notice_at`을 적는다(스펙 8절). null이면 지운다.
+     *
+     * 측정이 끊겼다가 재동기화 규칙 4로 세션이 닫힌 순간에 추정 종료 시각을 적고, 그 다음 세션이
+     * 열릴 때 지운다. 상태 카드의 "HH:MM에 측정이 중단됐다가 지금 다시 시작했어요"가 이 값을 읽는다
+     * (스펙 7절 사용자 안내). 그리는 일은 티켓 #28의 몫이다.
+     */
+    data class SaveRestartNotice(val atMillis: Long?) : SessionEffect
 
     /** [atMillis]에 `유예 만료` 이벤트로 깨우도록 예약한다(서비스 내 타이머 + 알람). */
     data class ScheduleGraceExpiry(val atMillis: Long) : SessionEffect

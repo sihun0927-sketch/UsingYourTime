@@ -43,6 +43,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
                 SessionEffect.SaveTrackingOn(trackingOn = true),
             ),
             reduction.effects,
@@ -121,6 +122,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 12),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -307,6 +309,7 @@ class SessionReducerTest {
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.CancelGraceExpiry,
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -412,6 +415,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -462,6 +466,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -495,6 +500,7 @@ class SessionReducerTest {
                     ),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -602,6 +608,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = 11),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -905,6 +912,7 @@ class SessionReducerTest {
                     ),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 5 * MINUTE_MILLIS),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -989,6 +997,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, muted = true),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -1045,6 +1054,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = null),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -1175,6 +1185,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 45, muted = true),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )

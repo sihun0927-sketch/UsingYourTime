@@ -12,6 +12,10 @@ data class Reduction(
  *
  * 전이표에 없는 (상태, 이벤트) 짝은 상태를 그대로 두고 효과도 내지 않는다.
  *
+ * 예외는 `서비스 재시작` 하나다([serviceRestart]). 프로세스가 죽었다 살아난 자리라 들고 있던
+ * 상태가 이미 사라졌고, 그래서 들어온 상태 대신 이벤트가 실어 온 저장된 세계로 상태를 다시
+ * 세운다(스펙 7절 재동기화).
+ *
  * 유예 만료를 정하는 것은 타이머가 아니라 **잠금 시각과 지금 시각의 차이**다. 유예 중에 들어오는
  * 모든 이벤트가 그 차이를 다시 재므로, 알람이 Doze로 늦게 오거나 유예 설정이 바뀌어 이르게 와도
  * 결과가 같다.
@@ -42,10 +46,221 @@ object SessionReducer {
 
         SessionEvent.MuteSession -> muteSession(state, nowMillis, settings)
 
-        // 임계값이나 재알림 주기를 이미 지난 값으로 낮췄으면 이 tick이 곧 그 깨우기다(스펙 3절
-        // 설정 변경 중 동작). 걸어 둔 깨우기는 옛 값으로 잡혀 있어 아직 오지 않기 때문이다.
-        SessionEvent.MinuteTick -> closeExpiredGrace(state, nowMillis, settings)
+        SessionEvent.MinuteTick -> minuteTick(state, nowMillis, settings)
+
+        is SessionEvent.ServiceRestart -> serviceRestart(event, nowMillis, settings)
+    }
+
+    /**
+     * `1분 tick`. 상시 표시를 다시 그리고, 세션 진행 중이면 heartbeat를 남긴다(스펙 7절).
+     *
+     * 밀린 알림을 갚는 자리이기도 하다. 임계값이나 재알림 주기를 이미 지난 값으로 낮췄으면 이 tick이
+     * 곧 그 깨우기다(스펙 3절 설정 변경 중 동작). 걸어 둔 깨우기는 옛 값으로 잡혀 있어 아직 오지
+     * 않기 때문이다.
+     *
+     * heartbeat는 **세션 진행 상태에서만** 나간다(스펙 7절). 유예 중에는 잠금 시각이 이미 적혀
+     * 있어 추정 종료 시각이 그것으로 정해지고, 잠긴 뒤로도 계속 살아 있었다고 적으면 유예가 끝난
+     * 세션을 지금까지 이어진 것으로 만든다. 세션 없음·측정 꺼짐에는 적을 행이 없다.
+     */
+    private fun minuteTick(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val reduction = closeExpiredGrace(state, nowMillis, settings)
             ?: alertOrRepaint(state, nowMillis, settings)
+
+        if (state.phase != Phase.Active) return reduction
+        return reduction.copy(
+            effects = reduction.effects + SessionEffect.SaveLastAliveAt(nowMillis),
+        )
+    }
+
+    /**
+     * `서비스 재시작`. 저장된 세계와 지금 잠금 상태만으로 상태를 다시 세운다(스펙 7절 재동기화).
+     *
+     * 들어온 [state]를 보지 않는 유일한 전이다. 이 이벤트가 오는 자리는 프로세스가 죽었다 살아난
+     * 직후라 리듀서가 들고 있던 상태가 이미 사라졌고, 정본은 Room·DataStore와 기기의 지금 상태뿐이다.
+     *
+     * 규칙 1~4가 여기 한 곳에 있다. 재부팅도, START_STICKY 재시작도, 앱 실행 시 재기동도 같은
+     * 길을 탄다(스펙 7절 "모든 경로 단일 규칙").
+     */
+    private fun serviceRestart(
+        event: SessionEvent.ServiceRestart,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        // 측정 꺼짐 + `서비스 재시작` → 측정 꺼짐(전이표). 남은 열린 세션 행도 손대지 않는다.
+        // 사용자가 측정 중지를 눌렀다면 그때 이미 닫혔고, 아니라면 다음 `측정 시작`이 아니라
+        // 다음 재시작이 판정할 재료다.
+        if (!event.trackingOn) return Reduction(SessionState.Off, listOf(SessionEffect.StopService))
+
+        val stored = event.storedSession
+            ?: return resumeWithoutSession(event.unlocked, nowMillis, settings)
+
+        // 규칙 1. 공백을 재는 기준은 지금 시각과 추정 종료 시각의 차이다.
+        val gapMillis = nowMillis - stored.estimatedEndAtMillis
+
+        return when {
+            gapMillis > settings.gracePeriodMillis ->
+                closeEstimated(stored, event.unlocked, nowMillis, settings) // 규칙 4
+
+            event.unlocked -> resumeSession(stored, nowMillis, settings) // 규칙 2
+
+            else -> resumeGrace(stored, nowMillis, settings) // 규칙 3
+        }
+    }
+
+    /**
+     * 열린 세션이 없을 때. "현재 상태만 읽어 잠금 해제면 새 세션 시작, 아니면 세션 없음"(스펙 7절).
+     *
+     * 측정을 켠 채 한 번도 세션이 열리지 않았거나, 마지막 세션이 제대로 닫힌 뒤 끊긴 경우다.
+     */
+    private fun resumeWithoutSession(
+        unlocked: Boolean,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction = if (unlocked) {
+        startNewSession(nowMillis, settings)
+    } else {
+        Reduction(
+            SessionState.Idle,
+            listOf(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle)),
+        )
+    }
+
+    /**
+     * 규칙 2. 잠금 해제 상태이고 공백이 유예 안이라 **같은 세션이 이어진다**. 시작 시각 그대로이고
+     * 공백도 연속 사용 시간에 들어간다(스펙 7절).
+     *
+     * 유예 안 잠금 해제([continueSession])와 같은 자리다. 잠긴 동안 알림이 나가지 않았을 뿐 아니라
+     * 서비스가 아예 없었으므로, 그 사이에 넘긴 임계값과 지나간 재알림 주기가 똑같이 밀려 있다.
+     * 그래서 판정도 똑같이 [alertOrRepaint] **한 번**이다.
+     *
+     * 다른 점은 걸어 둘 깨우기다. 유예 안 잠금 해제는 서비스가 살아 있어 타이머가 그대로지만,
+     * 여기서는 프로세스와 함께 다 사라졌다. 알림이 나갔으면 [postAlert]가 다음 재알림을 이미
+     * 걸었고, 나가지 않았으면 [nextAlertWakeUp]이 남은 하나를 건다.
+     */
+    private fun resumeSession(
+        stored: StoredSession,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val session = stored.toSession(lockedAtMillis = null)
+        val judged = alertOrRepaint(SessionState(Phase.Active, session), nowMillis, settings)
+        val resumed = judged.state.openSession()
+
+        return judged.copy(
+            effects = buildList {
+                addAll(judged.effects)
+                // 유예 중에 끊겼던 세션이다. 잠금 시각을 남겨 두면 다음 추정 종료 시각을 과거로
+                // 끌어내린다(스펙 8절, 잠금 시각은 "유예 중일 때"의 열이다).
+                if (stored.lockedAtMillis != null) {
+                    add(SessionEffect.SaveLockedAt(lockedAtMillis = null))
+                }
+                if (resumed.alerts == session.alerts) {
+                    nextAlertWakeUp(resumed, nowMillis, settings)?.let(::add)
+                }
+            },
+        )
+    }
+
+    /**
+     * 규칙 3. 잠금 상태이고 공백이 유예 안이라 **추정 종료 시각에 잠긴 것으로 보고** 유예 중으로
+     * 복원한다. 유예 타이머도 그 추정치 기준이다(스펙 7절).
+     *
+     * 잠금 시각을 저장까지 다시 하는 이유는 세션 진행 중에 끊긴 경우다. 그때 행에는 잠금 시각이
+     * 없어, 여기서 적어 두지 않으면 다음 재시작이 같은 추정을 처음부터 다시 하게 된다. 이미
+     * 잠금 시각이 있던 행이면 같은 값이라 덮어써도 그대로다.
+     *
+     * 알림은 걸지 않는다. 잠금 중에는 임계값 알림·재알림이 절대 나가지 않고(스펙 3·4절), 밀린
+     * 것은 다음 잠금 해제가 [continueSession]에서 1회만 갚는다.
+     */
+    private fun resumeGrace(
+        stored: StoredSession,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val estimatedEndAtMillis = stored.estimatedEndAtMillis
+        val session = stored.toSession(lockedAtMillis = estimatedEndAtMillis)
+
+        return Reduction(
+            state = SessionState(Phase.Grace, session),
+            effects = listOf(
+                SessionEffect.UpdatePersistentDisplay(graceContent(session, nowMillis, settings)),
+                SessionEffect.SaveLockedAt(lockedAtMillis = estimatedEndAtMillis),
+                SessionEffect.ScheduleGraceExpiry(
+                    atMillis = estimatedEndAtMillis + settings.gracePeriodMillis,
+                ),
+            ),
+        )
+    }
+
+    /**
+     * 규칙 4. 공백이 유예를 넘었다. 세션을 추정 종료 시각으로 닫고(종료 원인 `ESTIMATED`), 지금
+     * 잠금 해제 상태면 **지금** 새 세션을 열고 잠금 상태면 세션 없음이 된다(스펙 7절).
+     *
+     * 재시작 안내 시각도 여기서 적는다. 사용자가 보는 "HH:MM에 측정이 중단됐다가"의 HH:MM이 곧
+     * 추정 종료 시각이다. 규칙 4로 닫힌 세션에만 적으므로, 유예 만료나 측정 중지로 제대로 닫힌
+     * 세션은 안내를 남기지 않는다.
+     *
+     * 새로 여는 세션은 방금 적은 안내를 지우지 않는다([startNewSession]의 기본 동작과 다르다).
+     * 안내는 "그 다음 세션이 시작될 때" 사라지는 것이지 재시작이 연 이 세션에서 사라지는 것이
+     * 아니다. 그러지 않으면 잠금 해제 상태로 살아난 경우에 안내가 한 번도 보이지 않는다.
+     */
+    private fun closeEstimated(
+        stored: StoredSession,
+        unlocked: Boolean,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val estimatedEndAtMillis = stored.estimatedEndAtMillis
+        val closing = buildList {
+            add(SessionEffect.CloseSession(estimatedEndAtMillis, SessionEndReason.ESTIMATED))
+            if (stored.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+            add(SessionEffect.SaveRestartNotice(atMillis = estimatedEndAtMillis))
+        }
+
+        if (unlocked) {
+            return startNewSession(nowMillis, settings, closing, clearRestartNotice = false)
+        }
+
+        return Reduction(
+            state = SessionState.Idle,
+            effects = buildList {
+                add(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle))
+                addAll(closing)
+            },
+        )
+    }
+
+    /**
+     * 재시작한 세션에 다시 걸 알림 깨우기 하나, 걸 것이 없으면 null.
+     *
+     * 프로세스가 죽으면 걸어 둔 타이머가 모두 사라진다. 세션에 남은 자취가 어느 깨우기를 걸지
+     * 정한다. 아직 알린 적이 없으면 임계값 시각으로, 알린 적이 있으면 직전 알림 + 재알림 주기로.
+     *
+     * 그 시각이 이미 지났으면 걸지 않는다([rescheduleReAlert]와 같은 이유로 곧바로 돌아오는 깨우기가
+     * 되기 때문이다). 지난 시각은 재시작 직후의 판정이 이미 갚았거나, 알림이 막혀 갚을 수 없는
+     * 경우뿐이고 후자는 `1분 tick`이 다시 본다.
+     */
+    private fun nextAlertWakeUp(
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): SessionEffect? {
+        if (!alertsAllowed(session, settings)) return null
+
+        val lastAlertAtMillis = session.alerts.lastAlertAtMillis
+        val atMillis = lastAlertAtMillis?.plus(settings.reAlertIntervalMillis)
+            ?: (session.startedAtMillis + settings.thresholdMillis)
+        if (atMillis <= nowMillis) return null
+
+        return if (lastAlertAtMillis == null) {
+            SessionEffect.ScheduleThresholdAlert(atMillis)
+        } else {
+            SessionEffect.ScheduleReAlert(atMillis)
+        }
     }
 
     /** 측정 꺼짐 → 세션 진행. 버튼을 누른 시점은 잠금 해제 상태이므로 **지금** 세션을 연다. */
@@ -505,12 +720,18 @@ object SessionReducer {
      * 상시 표시가 늘 첫 효과다. 포그라운드 서비스의 알림이라 저장보다 뒤로 밀리면 안 된다.
      *
      * 새 세션의 알림 상태는 비어 있다. 임계값 알림은 세션마다 처음부터 다시 센다(스펙 3절 전이표).
+     *
+     * 재시작 안내도 여기서 사라진다. 스펙 7절이 "그 다음 세션이 시작될 때 사라진다"고 적은 자리이고,
+     * 전이표의 세션 없음 · `잠금 해제` 칸도 같은 말을 한다. 세션이 열리는 길이 모두 이 함수를
+     * 지나므로 여는 자리마다 따로 적지 않는다. 예외는 규칙 4가 스스로 여는 세션 하나뿐이다
+     * ([closeEstimated]).
      */
     private fun startNewSession(
         nowMillis: Long,
         settings: TrackingSettings,
         closing: List<SessionEffect> = emptyList(),
         cancelGraceExpiry: Boolean = false,
+        clearRestartNotice: Boolean = true,
     ): Reduction {
         val session = Session(startedAtMillis = nowMillis)
         val effects = buildList {
@@ -523,6 +744,7 @@ object SessionReducer {
                     atMillis = session.startedAtMillis + settings.thresholdMillis,
                 ),
             )
+            if (clearRestartNotice) add(SessionEffect.SaveRestartNotice(atMillis = null))
         }
         return Reduction(SessionState(Phase.Active, session), effects)
     }

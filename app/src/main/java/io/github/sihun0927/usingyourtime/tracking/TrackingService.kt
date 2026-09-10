@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
@@ -31,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 상시 표시를 다시 그리는 주기. 스펙 4절대로 1분에 1회다. */
@@ -43,7 +45,8 @@ private const val TICK_MILLIS = 60_000L
  * 리듀서가 돌려준 효과를 Android API로 옮기고, 새 상태를 [TrackingStatus]에 흘려보낸다.
  * 세션 규칙은 하나도 여기에 없다.
  *
- * START_STICKY 재시작·부팅·업데이트에서 상태를 되살리는 일은 복구 티켓(#27·#28)이 맡는다.
+ * 시스템이 START_STICKY로 되살리면 저장된 세션과 지금 잠금 상태로 재동기화한다(스펙 7절, [resync]).
+ * 부팅·업데이트·앱 실행에서 서비스를 다시 띄우는 일은 티켓 #28이 맡는다.
  */
 class TrackingService : Service() {
 
@@ -65,6 +68,11 @@ class TrackingService : Service() {
     /** 화면이 켜지는 순간 잠금 화면이 있는지 묻는 곳(스펙 5절). 권한이 필요 없다. */
     private val keyguardManager by lazy {
         requireNotNull(getSystemService(KeyguardManager::class.java))
+    }
+
+    /** 재동기화가 화면이 켜져 있는지 묻는 곳(스펙 3절 잠금 해제 상태의 정의). */
+    private val powerManager by lazy {
+        requireNotNull(getSystemService(PowerManager::class.java))
     }
 
     /**
@@ -159,20 +167,64 @@ class TrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (val event = eventOf(intent?.action)) {
-            // `intent == null`인 START_STICKY 재시작과 알 수 없는 요청이 여기로 온다. 넣을 이벤트가
-            // 없으니 상시 표시도 띄울 수 없어 서비스를 내린다. 저장된 `tracking_on`은 건드리지 않는다.
-            // 측정은 강제 종료·재부팅을 넘어 이어져야 하고(`CONTEXT.md` 측정 시작), 그 재동기화는
-            // 스펙 7절대로 복구 티켓에서 붙는다.
-            null -> {
-                Log.i(TAG, "넣을 이벤트가 없어 서비스를 내린다: action=${intent?.action}")
+        val event = eventOf(intent?.action)
+        when {
+            event != null -> dispatch(event)
+
+            // 시스템이 START_STICKY로 되살렸다(`intent == null`). 넣을 이벤트 대신 저장된 세계를
+            // 읽어 재동기화한다(스펙 7절).
+            intent == null -> resync()
+
+            // 알 수 없는 요청. 넣을 이벤트가 없으니 상시 표시도 띄울 수 없어 서비스를 내린다.
+            else -> {
+                Log.w(TAG, "알 수 없는 요청이라 서비스를 내린다: action=${intent.action}")
                 stopService()
             }
-
-            else -> dispatch(event)
         }
         return START_STICKY
     }
+
+    /**
+     * 저장된 세션과 지금 기기 상태로 재동기화한다(스펙 7절). START_STICKY 재시작이 유일한 입구다.
+     *
+     * **상시 표시가 먼저다.** 저장을 읽는 것은 suspend라 언제 끝날지 모르는데, 시스템이 되살린
+     * 포그라운드 서비스는 곧바로 `startForeground()`를 부를 수 있고 또 불러야 한다(#8 프로토타입).
+     * 그래서 아직 아무것도 모르는 이 순간에 맞는 대기 문구를 띄우고, 재동기화가 정한 내용으로
+     * 곧바로 덮는다. `tracking_on`이 꺼져 있었으면 리듀서가 서비스를 내려 그 대기 문구도 사라진다.
+     *
+     * 유예 만료 알람은 프로세스가 죽어도 남는다. `onDestroy`를 거치지 못한 채 죽었다면 걷힐 자리가
+     * 없었으므로 여기서 걷는다. 유예 중으로 복원되면 리듀서가 추정치 기준으로 다시 건다.
+     *
+     * 설정도 여기서 한 번 읽는다. `onCreate`가 건 구독의 첫 값을 기다리면 재동기화가 스펙 6절
+     * 기본값으로 판정할 수 있고, 공백을 재는 유예 시간이 어긋나면 세션을 잘못 잇거나 잘못 닫는다.
+     */
+    private fun resync() {
+        showPersistentDisplay(PersistentDisplayContent.Idle)
+        graceExpiryAlarm.cancel()
+
+        serviceScope.launch {
+            settings = settingsStore.settings.first()
+            val trackingOn = settingsStore.trackingOn.first()
+            val storedSession = sessionDao.openSession()
+            dispatch(
+                SessionEvent.ServiceRestart(
+                    trackingOn = trackingOn,
+                    storedSession = storedSession,
+                    unlocked = isUnlocked(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * 지금 잠금 해제 상태인지(스펙 3절의 정의 그대로).
+     *
+     * 죽어 있던 동안의 `ACTION_USER_PRESENT`·`ACTION_SCREEN_OFF`는 놓쳤으므로 재동기화가 기댈 곳은
+     * 이 두 물음뿐이다(#8). 잠금 화면이 '없음'인 기기에서는 `isKeyguardLocked()`가 늘 거짓이라
+     * 화면이 켜져 있으면 잠금 해제 상태가 되고, 그것이 곧 그 기기의 세션 정의다(ADR 0002).
+     */
+    private fun isUnlocked(): Boolean =
+        powerManager.isInteractive && !keyguardManager.isKeyguardLocked
 
     /**
      * 서비스가 사라지면 열린 세션도 프로세스에서 사라진다. 스스로 내려간 경우든 시스템이 죽인
@@ -217,7 +269,9 @@ class TrackingService : Service() {
             is SessionEffect.SaveTrackingOn -> settingsStore.setTrackingOn(effect.trackingOn)
             is SessionEffect.OpenSession -> sessionDao.open(effect.startedAtMillis)
             is SessionEffect.SaveLockedAt -> sessionDao.saveLockedAt(effect.lockedAtMillis)
+            is SessionEffect.SaveLastAliveAt -> sessionDao.saveLastAliveAt(effect.lastAliveAtMillis)
             is SessionEffect.CloseSession -> sessionDao.close(effect.endedAtMillis, effect.reason)
+            is SessionEffect.SaveRestartNotice -> settingsStore.setRestartNoticeAt(effect.atMillis)
             is SessionEffect.SaveAlertState -> sessionDao.saveAlerts(effect.alerts)
             is SessionEffect.SaveMuted -> sessionDao.saveMuted(effect.muted)
             is SessionEffect.ScheduleGraceExpiry -> scheduleGraceExpiry(effect.atMillis)
