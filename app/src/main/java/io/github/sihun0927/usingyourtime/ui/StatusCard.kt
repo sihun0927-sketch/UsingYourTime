@@ -40,14 +40,15 @@ private const val TICK_MILLIS = 1_000L
  * 3줄(측정 상태·연속 사용 시간·버튼)에 꺼짐 설명 문단과 조건부 안내 줄이 붙는다.
  * [sessionStartedAtMillis]가 있으면 연속 사용 시간이 1초마다 올라가고, 없으면 "—"다.
  *
- * 세션 없음(`Idle`) 문구와 나머지 조건부 안내 줄(세션 알림 끄기·재시작 안내·잠금 화면 없음)은
- * 각 티켓에서 이 카드에 들어온다.
+ * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 지금 있는 것은 알림 권한과
+ * [lockScreenAbsent]이고, 사이에 들어갈 세션 알림 끄기·재시작 안내는 각 티켓에서 온다.
  */
 @Composable
 internal fun StatusCard(
     trackingOn: Boolean,
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
+    lockScreenAbsent: Boolean,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
     modifier: Modifier = Modifier,
@@ -80,6 +81,12 @@ internal fun StatusCard(
                 )
             }
             NotificationPermissionNotice(notificationPermission)
+            if (lockScreenAbsent) {
+                SupportingText(
+                    text = stringResource(R.string.status_card_lock_screen_absent),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -207,6 +214,7 @@ private fun StatusCardOffPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
+            lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
         )
@@ -221,6 +229,22 @@ private fun StatusCardActivePreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
+            lockScreenAbsent = false,
+            onStartTracking = {},
+            onPause = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun StatusCardLockScreenAbsentPreview() {
+    UsingTimeTheme {
+        StatusCard(
+            trackingOn = true,
+            sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
+            notificationPermission = NotificationPermission.Granted,
+            lockScreenAbsent = true,
             onStartTracking = {},
             onPause = {},
         )
@@ -235,6 +259,7 @@ private fun StatusCardPermissionRequiredPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Required,
+            lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
         )
@@ -249,6 +274,7 @@ private fun StatusCardPermissionDeniedPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Denied,
+            lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
         )

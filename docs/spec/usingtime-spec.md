@@ -43,7 +43,7 @@ Google Play 배포 대상 일반 사용자. Android 단독. 무료, 광고 없�
 | **세션 진행** | 잠금 해제 상태, 세션이 열려 있음 | 실행 중 | 있음 |
 | **유예 중** | 잠금(또는 화면 꺼짐) 상태이지만 유예 시간이 아직 지나지 않아 세션이 열려 있음 | 실행 중 | 있음 |
 
-"잠금 해제 상태"의 정의: `PowerManager.isInteractive() == true` 이고 `KeyguardManager.isKeyguardLocked() == false`. 잠금 화면이 '없음'인 기기는 화면이 켜질 때마다 잠금 해제 상태가 되므로 화면 켜짐~꺼짐이 한 세션이 된다. 이 기기를 위한 코드 분기는 없다.
+"잠금 해제 상태"의 정의: `PowerManager.isInteractive() == true` 이고 `KeyguardManager.isKeyguardLocked() == false`. 잠금 화면이 '없음'인 기기는 화면이 켜질 때마다 잠금 해제 상태가 되므로 화면 켜짐~꺼짐이 한 세션이 된다. 그 기기에는 keyguard가 없어 `ACTION_USER_PRESENT`를 보낼 주체도 없으므로, 서비스가 `ACTION_SCREEN_ON` 직후의 `isKeyguardLocked()`를 보고 잠겨 있지 않으면 `잠금 해제` 이벤트로 옮긴다(5절 감지와 같은 판정, [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 세션 규칙·유예 시간에는 이 기기를 위한 분기가 없다.
 
 ### 이벤트
 
@@ -51,9 +51,9 @@ Google Play 배포 대상 일반 사용자. Android 단독. 무료, 광고 없�
 |---|---|
 | `측정 시작` | 설정 화면 상태 카드 버튼 |
 | `측정 중지` | 설정 화면 상태 카드 버튼 |
-| `잠금 해제` | `ACTION_USER_PRESENT` 수신 |
+| `잠금 해제` | `ACTION_USER_PRESENT` 수신, 또는 `ACTION_SCREEN_ON` 직후 `isKeyguardLocked() == false` (잠금 화면 '없음' 기기) |
 | `잠금` | `ACTION_SCREEN_OFF` 수신 |
-| `화면 켜짐` | `ACTION_SCREEN_ON` 수신 (잠금 해제 없이 잠금 화면만 켜진 것) |
+| `화면 켜짐` | `ACTION_SCREEN_ON` 수신 + `isKeyguardLocked() == true` (잠금 해제 없이 잠금 화면만 켜진 것) |
 | `유예 만료` | 유예 타이머 또는 `setAndAllowWhileIdle` 알람, 또는 `화면 켜짐`·`잠금 해제` 시 타임스탬프 재판정 |
 | `임계값 도달` | 세션 진행 중 `elapsedRealtime` 타이머 |
 | `재알림 주기 경과` | 세션 진행 중 `elapsedRealtime` 타이머 |
@@ -189,6 +189,8 @@ stateDiagram-v2
 ### 잠금 화면 '없음' 감지
 
 `ACTION_SCREEN_ON` 직후 `KeyguardManager.isKeyguardLocked() == false`면 잠금 화면 없음으로 보고 안내 줄을 켠다. 매 `SCREEN_ON`마다 재판정하므로 잠금 설정을 바꾸면 자연히 사라진다. 권한 불필요.
+
+같은 판정이 그 `SCREEN_ON`을 어떤 이벤트로 넣을지도 정한다. 잠겨 있으면 `화면 켜짐`, 잠겨 있지 않으면 `잠금 해제`다(3절, [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 판정은 서비스가 살아 있는 동안만 하므로, 측정이 꺼져 있거나 켠 뒤 아직 화면이 꺼졌다 켜지지 않았으면 안내 줄이 없다.
 
 ## 6. 설정 값
 
@@ -340,9 +342,9 @@ Room 테이블 `sessions`:
 | 절 | 근거 티켓 |
 |---|---|
 | 1 개요 | [#5 수익화](https://github.com/sihun0927-sketch/UsingYourTime/issues/5), 지도 [#1](https://github.com/sihun0927-sketch/UsingYourTime/issues/1) Out of scope |
-| 3 세션 상태 모델 | [#9 유예 중 임계값 도달](https://github.com/sihun0927-sketch/UsingYourTime/issues/9), [#10 잠금 화면 '없음'](https://github.com/sihun0927-sketch/UsingYourTime/issues/10), [#14 측정 중지 범위](https://github.com/sihun0927-sketch/UsingYourTime/issues/14), [#4 재알림](https://github.com/sihun0927-sketch/UsingYourTime/issues/4) |
+| 3 세션 상태 모델 | [#9 유예 중 임계값 도달](https://github.com/sihun0927-sketch/UsingYourTime/issues/9), [#10 잠금 화면 '없음'](https://github.com/sihun0927-sketch/UsingYourTime/issues/10), [#14 측정 중지 범위](https://github.com/sihun0927-sketch/UsingYourTime/issues/14), [#4 재알림](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#22 잠금 화면 '없음' 기기 안내](https://github.com/sihun0927-sketch/UsingYourTime/issues/22) |
 | 4 알림 규칙 | [#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#7 UI 프로토타입](https://github.com/sihun0927-sketch/UsingYourTime/issues/7), [#16 표준 템플릿·경고색](https://github.com/sihun0927-sketch/UsingYourTime/issues/16), [#9](https://github.com/sihun0927-sketch/UsingYourTime/issues/9), [#15 스펙 조립](https://github.com/sihun0927-sketch/UsingYourTime/issues/15) (세션 없음 문구) |
-| 5 화면 | [#14](https://github.com/sihun0927-sketch/UsingYourTime/issues/14), [#7](https://github.com/sihun0927-sketch/UsingYourTime/issues/7), [#10](https://github.com/sihun0927-sketch/UsingYourTime/issues/10), [#12 복구](https://github.com/sihun0927-sketch/UsingYourTime/issues/12), [#13 스토어](https://github.com/sihun0927-sketch/UsingYourTime/issues/13) |
+| 5 화면 | [#14](https://github.com/sihun0927-sketch/UsingYourTime/issues/14), [#7](https://github.com/sihun0927-sketch/UsingYourTime/issues/7), [#10](https://github.com/sihun0927-sketch/UsingYourTime/issues/10), [#12 복구](https://github.com/sihun0927-sketch/UsingYourTime/issues/12), [#13 스토어](https://github.com/sihun0927-sketch/UsingYourTime/issues/13), [#22](https://github.com/sihun0927-sketch/UsingYourTime/issues/22) |
 | 6 설정 값 | [#3 기본값·범위](https://github.com/sihun0927-sketch/UsingYourTime/issues/3), [#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4) |
 | 7 복구 정책 | [#12](https://github.com/sihun0927-sketch/UsingYourTime/issues/12), [#8 START_STICKY 기기 테스트](https://github.com/sihun0927-sketch/UsingYourTime/issues/8), [#11 시작 트리거](https://github.com/sihun0927-sketch/UsingYourTime/issues/11) |
 | 8 플랫폼·기술 | [#2 잠금 감지 research](https://github.com/sihun0927-sketch/UsingYourTime/issues/2), [#6 기술 스택](https://github.com/sihun0927-sketch/UsingYourTime/issues/6), [#11](https://github.com/sihun0927-sketch/UsingYourTime/issues/11), [#13](https://github.com/sihun0927-sketch/UsingYourTime/issues/13) |
@@ -371,3 +373,4 @@ Room 테이블 `sessions`:
 | 상시 표시 막대 색은 앱 accent 고정 ([#7](https://github.com/sihun0927-sketch/UsingYourTime/issues/7)) | 초과 전 accent, 초과 후 경고색 | [#16](https://github.com/sihun0927-sketch/UsingYourTime/issues/16) |
 | 잠금 중에는 `IMPORTANCE_MIN` 대기 알림으로 전환 ([#2](https://github.com/sihun0927-sketch/UsingYourTime/issues/2) research 제안) | 유예 중에도 상시 표시를 그대로 유지 | [#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#9](https://github.com/sihun0927-sketch/UsingYourTime/issues/9) |
 | 유예 만료 시 상시 표시·임계값 알림 모두 제거 ([#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#9](https://github.com/sihun0927-sketch/UsingYourTime/issues/9)) | 임계값 알림만 제거. 상시 표시는 측정이 켜진 동안 항상 있고 세션이 없으면 "측정 대기 중" 문구로 바뀜 | [#15](https://github.com/sihun0927-sketch/UsingYourTime/issues/15) |
+| 잠금 화면 '없음' 기기에도 `ACTION_USER_PRESENT`가 오므로 코드 분기가 없다 (3절) | 그 기기에는 오지 않는다(에뮬레이터 관측). 서비스가 `ACTION_SCREEN_ON` + `isKeyguardLocked() == false`를 `잠금 해제`로 옮긴다. 세션 규칙은 그대로 | [#22](https://github.com/sihun0927-sketch/UsingYourTime/issues/22), [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md) |

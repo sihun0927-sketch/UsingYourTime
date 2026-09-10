@@ -21,6 +21,7 @@
     <string name="status_card_off_description">잠금 해제한 뒤 계속 사용한 시간을 상태바에 보여주고, 정한 시간이 지나면 알려드려요.</string>
     <string name="status_card_notification_permission_required">연속 사용 시간을 상태바에 보여주려면 알림 권한이 필요해요</string>
     <string name="status_card_notification_permission_denied">알림 권한이 꺼져 있어 측정을 시작할 수 없어요 · 설정에서 켜기</string>
+    <string name="status_card_lock_screen_absent">잠금 화면이 없어 화면이 켜진 시간을 기준으로 측정합니다</string>
     <string name="action_start_tracking">측정 시작</string>
     <string name="action_pause">측정 중지</string>
 

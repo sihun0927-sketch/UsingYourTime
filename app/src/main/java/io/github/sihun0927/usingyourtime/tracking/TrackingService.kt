@@ -1,5 +1,6 @@
 package io.github.sihun0927.usingyourtime.tracking
 
+import android.app.KeyguardManager
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -56,6 +57,9 @@ class TrackingService : Service() {
     private val sessionDao by lazy { UsingTimeDatabase.get(this).sessionDao() }
     private val graceExpiryAlarm by lazy { GraceExpiryAlarm(this) }
 
+    /** 화면이 켜지는 순간 잠금 화면이 있는지 묻는 곳(스펙 5절). 권한이 필요 없다. */
+    private val keyguardManager by lazy { getSystemService(KeyguardManager::class.java) }
+
     /**
      * 효과 실행 줄. 리시버·타이머가 이벤트를 넣기 시작하면서 효과 목록이 겹칠 수 있게 됐다.
      * 한 소비자가 넣은 순서대로 하나씩 끝내야 Room의 "열린 행 최대 1개"가 깨지지 않는다.
@@ -84,7 +88,7 @@ class TrackingService : Service() {
             val event = when (intent?.action) {
                 Intent.ACTION_USER_PRESENT -> SessionEvent.Unlock
                 Intent.ACTION_SCREEN_OFF -> SessionEvent.Lock
-                Intent.ACTION_SCREEN_ON -> SessionEvent.ScreenOn
+                Intent.ACTION_SCREEN_ON -> screenOnEvent()
                 GraceExpiryAlarm.ACTION -> SessionEvent.GraceExpired
                 else -> return
             }
@@ -126,7 +130,7 @@ class TrackingService : Service() {
      * 경우든 화면이 없는 세션을 계속 보여주지 않도록 창구를 비운다.
      */
     override fun onDestroy() {
-        TrackingStatus.publish(SessionState.Off)
+        TrackingStatus.clear()
         unregisterReceiver(eventReceiver)
         // 서비스를 시스템이 내렸다면 유예 만료 예약이 남아 있다. 받을 리시버가 사라져 아무 일도
         // 일어나지 않지만, 기기를 깨우기만 하는 알람을 남길 이유가 없다.
@@ -179,6 +183,25 @@ class TrackingService : Service() {
             persistentDisplay.build(content),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
+    }
+
+    /**
+     * `ACTION_SCREEN_ON`을 리듀서에 넣을 이벤트로 옮긴다. 화면이 켜진 직후의 잠금 화면 판정이
+     * 안내 줄(스펙 5절)과 이 번역을 함께 정한다.
+     *
+     * 잠금 화면이 '없음'인 기기에서는 화면이 켜지는 순간이 곧 잠금 해제라 `ACTION_USER_PRESENT`를
+     * 보낼 주체가 없다. 그 기기에서도 세션이 열리도록 여기서 `잠금 해제`로 옮긴다. 세션 규칙에
+     * 예외를 두는 것이 아니라 이벤트를 옮기는 것이고, 리듀서는 이 분기를 모른다(ADR 0002).
+     *
+     * 잠금 화면이 있는 기기는 화면이 켜지는 순간 아직 잠겨 있어 `화면 켜짐` 그대로 가고, 곧이어
+     * 오는 진짜 `ACTION_USER_PRESENT`가 세션을 연다. "화면이 꺼지고 N초 뒤 잠금" 설정의 그 N초
+     * 안에 다시 켜면 잠겨 있지 않아 여기서도 `잠금 해제`가 되는데, 그 순간 기기는 실제로 잠금
+     * 해제 상태다(스펙 3절의 정의). 안내 줄만 한 번 잘못 켜지고 다음 `화면 켜짐`에 사라진다.
+     */
+    private fun screenOnEvent(): SessionEvent {
+        val locked = keyguardManager.isKeyguardLocked
+        TrackingStatus.publishLockScreenAbsent(absent = !locked)
+        return if (locked) SessionEvent.ScreenOn else SessionEvent.Unlock
     }
 
     private fun registerEventReceiver() {
