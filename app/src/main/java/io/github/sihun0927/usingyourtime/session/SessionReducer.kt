@@ -34,11 +34,17 @@ object SessionReducer {
             ?: rescheduleGraceExpiry(state, nowMillis, settings)
 
         SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings) ?: Reduction(state)
+        SessionEvent.ReAlertIntervalElapsed -> reAlert(state, nowMillis, settings)
+            ?: rescheduleReAlert(state, settings)
 
-        // 임계값을 이미 지난 값으로 낮췄으면 이 tick이 곧 `임계값 도달`이다(스펙 3절 설정 변경 중
-        // 동작). 걸어 둔 깨우기는 이미 지나가 버렸기 때문이다.
+        // 임계값이나 재알림 주기를 이미 지난 값으로 낮췄으면 이 tick이 곧 그 깨우기다(스펙 3절
+        // 설정 변경 중 동작). 걸어 둔 깨우기는 옛 값으로 잡혀 있어 아직 오지 않기 때문이다.
+        //
+        // 첫 알림이 이 자리에서 나갔으면 재알림은 건너뛴다. 방금 보낸 알림이 곧 직전 알림이라
+        // 주기가 지났을 리 없다.
         SessionEvent.MinuteTick -> closeExpiredGrace(state, nowMillis, settings)
             ?: thresholdAlert(state, nowMillis, settings)
+            ?: reAlert(state, nowMillis, settings)
             ?: refreshPersistentDisplay(state, nowMillis, settings)
     }
 
@@ -150,18 +156,14 @@ object SessionReducer {
     }
 
     /**
-     * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
+     * 지금 첫 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
      *
      * 발송 조건은 스펙 4절이다. 세션 진행 상태이고, 연속 사용 시간이 임계값에 닿았고, 이 세션에서
-     * 아직 알린 적이 없어야 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이
-     * 조건에 더해진다.
+     * 아직 알린 적이 없어야 한다. 임계값 알림 토글과 세션 알림 끄기는 #25에서 이 조건에 더해진다.
      *
      * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
      * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
      * 왔든 판정은 연속 사용 시간이 하므로 결과가 같다.
-     *
-     * 상시 표시가 같은 자리에서 초과 상태로 바뀐다. 제목의 "초과"·가득 찬 막대·경고색이 알림과 함께
-     * 움직여야 하기 때문이다(스펙 4절 경고색 규칙).
      */
     private fun thresholdAlert(
         state: SessionState,
@@ -173,13 +175,90 @@ object SessionReducer {
         if (session.alerts.alerted) return null
         if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
 
-        val alerting = session.copy(
+        return postAlert(
+            session = session,
             alerts = AlertState(
                 thresholdAlertedAtMillis = nowMillis,
                 lastAlertAtMillis = nowMillis,
                 count = 1,
             ),
+            nowMillis = nowMillis,
+            settings = settings,
         )
+    }
+
+    /**
+     * 지금 재알림을 보낼 상황이면 그 전이, 아니면 null.
+     *
+     * 첫 알림에 더해지는 조건은 하나다. **직전 알림 시각**에서 재알림 주기가 지났어야 한다. 사용자가
+     * 알림을 지웠는지는 조건에 없다. 지운 것은 알림 창에서 치운 것일 뿐이고, 리듀서는 그 사실을
+     * 알지도 못한다. 그래서 지워도 다음 재알림은 예정대로 오고, 그때까지만 알림이 보이지 않는다
+     * (스펙 4절).
+     *
+     * 회차에 상한이 없어 세션이 이어지는 한 주기마다 무한히 반복한다(스펙 4절). 연속 사용 시간은
+     * 다시 재지 않는다. 첫 알림이 임계값에서 나갔으니 그 뒤로는 늘 임계값을 넘긴 상태다.
+     */
+    private fun reAlert(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction? {
+        if (state.phase != Phase.Active) return null
+        val session = state.openSession()
+        val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
+        if (nowMillis - lastAlertAtMillis < settings.reAlertIntervalMillis) return null
+
+        return postAlert(
+            session = session,
+            alerts = session.alerts.copy(
+                lastAlertAtMillis = nowMillis,
+                count = session.alerts.count + 1,
+            ),
+            nowMillis = nowMillis,
+            settings = settings,
+        )
+    }
+
+    /**
+     * 아직 재알림 주기가 남았는데 `재알림 주기 경과`로 깨어났을 때. 새 전이가 아니라 같은 세션 진행
+     * 칸이고, 전이표가 그 칸에 적어 둔 "재알림 타이머 재시작"만 한다.
+     *
+     * 재알림 주기를 늘리면 걸어 둔 깨우기가 이르게 온다. 그때 다시 걸지 않으면 이 세션에 재알림을
+     * 깨울 것이 남지 않아 `1분 tick`이 메울 때까지 밀린다([rescheduleGraceExpiry]와 같은 자리다).
+     *
+     * 셀 기준점이 없으면(세션이 닫혔거나 잠겼거나 아직 알린 적이 없다) 걸 시각도 없다. 잠금 중에
+     * 밀린 알림은 다음 잠금 해제 직후에 판정한다(#26).
+     */
+    private fun rescheduleReAlert(state: SessionState, settings: TrackingSettings): Reduction {
+        if (state.phase != Phase.Active) return Reduction(state)
+        val lastAlertAtMillis = state.openSession().alerts.lastAlertAtMillis ?: return Reduction(state)
+
+        return Reduction(
+            state = state,
+            effects = listOf(
+                SessionEffect.ScheduleReAlert(lastAlertAtMillis + settings.reAlertIntervalMillis),
+            ),
+        )
+    }
+
+    /**
+     * 첫 임계값 알림과 재알림이 함께 쓰는 전이. 둘은 [alerts]를 어떻게 옮기느냐만 다르고, 알림 id도
+     * 게시하는 효과도 같다(스펙 4절).
+     *
+     * 상시 표시가 같은 자리에서 다시 그려진다. 초과 상태로 바뀌는 순간이기도 하고(제목의 "초과"·가득
+     * 찬 막대·경고색이 알림과 함께 움직여야 한다, 스펙 4절 경고색 규칙), 본문의 "다음 알림 N분 후"가
+     * 방금 옮긴 기준점에서 다시 세어져야 하기 때문이다.
+     *
+     * 다음 재알림 예약이 마지막 효과다. 알림이 나간 시각에서 주기를 재므로 앞의 효과가 무엇이든
+     * 결과가 같지만, 걸 시각을 이 전이가 이미 정해 두었다는 것이 순서로도 보인다.
+     */
+    private fun postAlert(
+        session: Session,
+        alerts: AlertState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val alerting = session.copy(alerts = alerts)
         return Reduction(
             state = SessionState(Phase.Active, alerting),
             effects = listOf(
@@ -188,9 +267,11 @@ object SessionReducer {
                     ThresholdAlertContent(
                         elapsedMinutes = elapsedMinutes(alerting, nowMillis),
                         reAlertMinutes = settings.reAlertMinutes,
+                        count = alerts.count,
                     ),
                 ),
-                SessionEffect.SaveAlertState(alerting.alerts),
+                SessionEffect.SaveAlertState(alerts),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + settings.reAlertIntervalMillis),
             ),
         )
     }
@@ -330,8 +411,11 @@ object SessionReducer {
      * 다음 알림은 직전 알림 시각으로부터 재알림 주기 뒤다. 셀 기준점이 없거나(이 세션에서 아직
      * 알린 적이 없다) 그 시각이 이미 지났으면 null이고, 그때 본문은 초과했다는 사실만 적는다.
      *
-     * 재알림이 붙으면(#24) 주기가 지나는 순간 알림이 나가면서 기준점이 옮겨지므로, "이미 지났다"는
-     * 쪽은 그 자리를 비운다. 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
+     * 세션 진행 중에는 주기가 지나는 순간 재알림이 나가면서 기준점이 옮겨지므로 "이미 지났다"는
+     * 쪽이 거의 비어 있다. 잠금 중에는 알림이 나가지 않아(스펙 4절) 유예를 지나며 주기가 지날 수
+     * 있고, 그 세션이 잠금 해제로 돌아온 자리가 남는다(#26).
+     *
+     * 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
      */
     private fun nextAlertMinutes(
         session: Session,

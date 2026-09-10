@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     lockScreenAbsent = lockScreenAbsent,
                     thresholdMinutes = settings.thresholdMinutes,
                     graceMinutes = settings.graceMinutes,
+                    reAlertMinutes = settings.reAlertMinutes,
                     onStartTracking = {
                         when (notificationPermission) {
                             NotificationPermission.Granted -> TrackingService.startTracking(this)
@@ -86,6 +87,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onGraceMinutesChange = { minutes ->
                         lifecycleScope.launch { settingsStore.setGraceMinutes(minutes) }
+                    },
+                    onReAlertMinutesChange = { minutes ->
+                        lifecycleScope.launch { settingsStore.setReAlertMinutes(minutes) }
                     },
                 )
             }

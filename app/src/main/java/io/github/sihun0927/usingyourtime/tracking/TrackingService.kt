@@ -94,6 +94,14 @@ class TrackingService : Service() {
     private var thresholdAlertTimer: Job? = null
 
     /**
+     * 재알림 주기로 깨우는 타이머. 알림을 하나 보낼 때마다 새로 걸어 앞의 것을 덮는다.
+     *
+     * [thresholdAlertTimer]와 같은 이유로 알람을 함께 걸지 않는다. 재알림도 잠금 해제 상태에서만
+     * 나가므로 기기가 잠든 동안 깨울 이유가 없다.
+     */
+    private var reAlertTimer: Job? = null
+
+    /**
      * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기. manifest로는 받을 수 없어 서비스가 살아 있는
      * 동안만 런타임 등록한다(스펙 8절).
      *
@@ -213,6 +221,7 @@ class TrackingService : Service() {
             is SessionEffect.PostThresholdAlert -> postThresholdAlert(effect.content)
             SessionEffect.DismissThresholdAlert -> dismissThresholdAlert()
             is SessionEffect.ScheduleThresholdAlert -> scheduleThresholdAlert(effect.atMillis)
+            is SessionEffect.ScheduleReAlert -> scheduleReAlert(effect.atMillis)
             SessionEffect.StopService -> stopService()
         }
     }
@@ -248,16 +257,38 @@ class TrackingService : Service() {
      * 세션이 사는 동안 임계값을 바꾸면 이 예약이 어긋나지만, 리듀서가 연속 사용 시간으로 다시
      * 판정하고 어긋난 만큼은 `1분 tick`이 메운다(스펙 3절 설정 변경 중 동작). 그래서 예약을
      * 취소하거나 다시 걸 일이 없다. 세션이 닫힌 뒤 남은 타이머가 깨워도 리듀서가 무시한다.
-     *
-     * [atMillis]는 epoch이고 기다리는 길이는 여기서 한 번만 잰다. 그 뒤의 `delay`는 프로세스
-     * 시계를 쓰므로 벽시계가 흔들려도 늘어나거나 줄지 않는다(주의사항 1).
      */
     private fun scheduleThresholdAlert(atMillis: Long) {
         thresholdAlertTimer?.cancel()
-        thresholdAlertTimer = serviceScope.launch {
-            delay(atMillis - System.currentTimeMillis())
-            dispatch(SessionEvent.ThresholdReached)
-        }
+        thresholdAlertTimer = wakeUpAt(atMillis, SessionEvent.ThresholdReached)
+    }
+
+    /**
+     * 재알림 주기로 깨우기. 알림이 나갈 때마다 그 시각 + 재알림 주기로 다시 건다.
+     *
+     * 사용자가 알림을 지워도 이 타이머는 그대로다. 지우는 것은 알림 창에서 일어나는 일이라 서비스에
+     * 닿지 않고, 다음 재알림이 예정대로 온다(스펙 4절).
+     *
+     * 세션이 사는 동안 재알림 주기를 바꾸면 이 예약이 어긋나지만, [scheduleThresholdAlert]과 같이
+     * 리듀서가 직전 알림 시각으로 다시 판정하고 어긋난 만큼은 `1분 tick`이 메운다.
+     */
+    private fun scheduleReAlert(atMillis: Long) {
+        reAlertTimer?.cancel()
+        reAlertTimer = wakeUpAt(atMillis, SessionEvent.ReAlertIntervalElapsed)
+    }
+
+    /**
+     * [atMillis]에 [event]를 넣는 타이머 하나. 세 예약이 모두 이 모양이라 여기 한 번만 적는다.
+     *
+     * [atMillis]는 epoch이고 기다리는 길이는 여기서 한 번만 잰다. 그 뒤의 `delay`는 프로세스
+     * 시계를 쓰므로 벽시계가 흔들려도 늘어나거나 줄지 않는다(주의사항 1).
+     *
+     * 부르는 쪽이 앞의 타이머를 취소하고 돌려받은 [Job]을 자기 자리에 넣는다. 예약마다 붙들 자리가
+     * 달라서(유예 만료·임계값 도달·재알림) 그것까지 여기서 하지 않는다.
+     */
+    private fun wakeUpAt(atMillis: Long, event: SessionEvent): Job = serviceScope.launch {
+        delay(atMillis - System.currentTimeMillis())
+        dispatch(event)
     }
 
     private fun registerEventReceiver() {
@@ -292,10 +323,7 @@ class TrackingService : Service() {
      */
     private fun scheduleGraceExpiry(atMillis: Long) {
         graceExpiryTimer?.cancel()
-        graceExpiryTimer = serviceScope.launch {
-            delay(atMillis - System.currentTimeMillis())
-            dispatch(SessionEvent.GraceExpired)
-        }
+        graceExpiryTimer = wakeUpAt(atMillis, SessionEvent.GraceExpired)
         graceExpiryAlarm.schedule(atMillis)
     }
 
