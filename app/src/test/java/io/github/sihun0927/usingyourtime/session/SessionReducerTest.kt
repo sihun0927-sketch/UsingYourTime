@@ -672,13 +672,21 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `세션 알림 끄기 뒤에는 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
-        val muted = mutedSince(nowMillis - 30 * MINUTE_MILLIS)
+    fun `세션 알림 끄기 뒤에는 임계값에 닿아도 알림 없이 상시 표시만 초과로 바뀐다`() {
+        val startedAtMillis = nowMillis - 30 * MINUTE_MILLIS
+        val muted = mutedSince(startedAtMillis)
 
         val reduction = reduce(muted, SessionEvent.ThresholdReached)
 
         assertEquals(muted, reduction.state)
-        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 30, muted = true),
+                ),
+            ),
+            reduction.effects,
+        )
     }
 
     @Test
@@ -721,13 +729,21 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `임계값 알림 토글이 꺼져 있으면 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
-        val active = activeSince(nowMillis - 30 * MINUTE_MILLIS)
+    fun `임계값 알림 토글이 꺼져 있으면 임계값에 닿아도 알림 없이 상시 표시만 초과로 바뀐다`() {
+        val startedAtMillis = nowMillis - 30 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis)
 
         val reduction = reduce(active, SessionEvent.ThresholdReached, alertsDisabled)
 
         assertEquals(active, reduction.state)
-        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 30, nextAlertMinutes = null),
+                ),
+            ),
+            reduction.effects,
+        )
     }
 
     @Test

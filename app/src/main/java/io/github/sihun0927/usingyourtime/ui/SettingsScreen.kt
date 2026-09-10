@@ -57,24 +57,40 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            // 설정만 스크롤한다. 개인정보처리방침 행은 스펙 5절의 마지막 항목이라 아래에 붙여 둔다.
-            // 항목이 늘어도(#24 재알림 주기, #29 도움말) 화면 밖으로 밀려나지 않는다.
-            SettingsList(
-                trackingOn = trackingOn,
-                sessionStartedAtMillis = sessionStartedAtMillis,
-                notificationPermission = notificationPermission,
-                muted = muted,
-                lockScreenAbsent = lockScreenAbsent,
-                thresholdMinutes = thresholdMinutes,
-                graceMinutes = graceMinutes,
-                thresholdAlertEnabled = thresholdAlertEnabled,
-                onStartTracking = onStartTracking,
-                onPause = onPause,
-                onThresholdMinutesChange = onThresholdMinutesChange,
-                onGraceMinutesChange = onGraceMinutesChange,
-                onThresholdAlertEnabledChange = onThresholdAlertEnabledChange,
-                modifier = Modifier.weight(1f),
-            )
+            // 상태 카드와 설정만 스크롤한다. 개인정보처리방침 행은 스펙 5절의 마지막 항목이라
+            // 아래에 고정으로 붙여 둔다. 항목이 늘어도(#24 재알림 주기, #29 도움말) 화면 밖으로
+            // 밀려나지 않는다.
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                StatusCard(
+                    trackingOn = trackingOn,
+                    sessionStartedAtMillis = sessionStartedAtMillis,
+                    notificationPermission = notificationPermission,
+                    muted = muted,
+                    lockScreenAbsent = lockScreenAbsent,
+                    onStartTracking = onStartTracking,
+                    onPause = onPause,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                )
+                ThresholdSetting(
+                    thresholdMinutes = thresholdMinutes,
+                    onThresholdMinutesChange = onThresholdMinutesChange,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                GracePeriodSetting(
+                    graceMinutes = graceMinutes,
+                    onGraceMinutesChange = onGraceMinutesChange,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                ThresholdAlertSetting(
+                    thresholdAlertEnabled = thresholdAlertEnabled,
+                    onThresholdAlertEnabledChange = onThresholdAlertEnabledChange,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+            }
             HorizontalDivider()
             Text(
                 text = stringResource(R.string.privacy_policy),
@@ -85,53 +101,6 @@ fun SettingsScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
             )
         }
-    }
-}
-
-/** 상태 카드와 설정 항목들. 화면보다 길어지면 이 안에서 스크롤한다(스펙 5절 구성 1·2번). */
-@Composable
-private fun SettingsList(
-    trackingOn: Boolean,
-    sessionStartedAtMillis: Long?,
-    notificationPermission: NotificationPermission,
-    muted: Boolean,
-    lockScreenAbsent: Boolean,
-    thresholdMinutes: Int,
-    graceMinutes: Int,
-    thresholdAlertEnabled: Boolean,
-    onStartTracking: () -> Unit,
-    onPause: () -> Unit,
-    onThresholdMinutesChange: (Int) -> Unit,
-    onGraceMinutesChange: (Int) -> Unit,
-    onThresholdAlertEnabledChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.verticalScroll(rememberScrollState())) {
-        StatusCard(
-            trackingOn = trackingOn,
-            sessionStartedAtMillis = sessionStartedAtMillis,
-            notificationPermission = notificationPermission,
-            muted = muted,
-            lockScreenAbsent = lockScreenAbsent,
-            onStartTracking = onStartTracking,
-            onPause = onPause,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-        )
-        ThresholdSetting(
-            thresholdMinutes = thresholdMinutes,
-            onThresholdMinutesChange = onThresholdMinutesChange,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        )
-        GracePeriodSetting(
-            graceMinutes = graceMinutes,
-            onGraceMinutesChange = onGraceMinutesChange,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        )
-        ThresholdAlertSetting(
-            thresholdAlertEnabled = thresholdAlertEnabled,
-            onThresholdAlertEnabledChange = onThresholdAlertEnabledChange,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-        )
     }
 }
 
