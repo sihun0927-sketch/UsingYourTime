@@ -1065,6 +1065,16 @@ class SessionReducerTest {
         assertEquals(2, afterEnabled.state.session?.alerts?.count)
     }
 
+    @Test
+    fun `알림이 막힌 세션에는 재알림 주기가 남았어도 깨우기를 다시 걸지 않는다`() {
+        val muted = mutedSince(nowMillis - 40 * MINUTE_MILLIS, alertedMinutesAgo(10))
+
+        val reduction = reduce(muted, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
     private fun reduce(
         state: SessionState,
         event: SessionEvent,

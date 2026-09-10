@@ -38,7 +38,7 @@ object SessionReducer {
             ?: Reduction(state)
 
         SessionEvent.ReAlertIntervalElapsed -> reAlert(state, nowMillis, settings)
-            ?: rescheduleReAlert(state, settings)
+            ?: rescheduleReAlert(state, nowMillis, settings)
 
         SessionEvent.MuteSession -> muteSession(state, nowMillis, settings)
 
@@ -276,22 +276,26 @@ object SessionReducer {
      * 셀 기준점이 없으면(세션이 닫혔거나 잠겼거나 아직 알린 적이 없다) 걸 시각도 없다. 잠금 중에
      * 밀린 알림은 다음 잠금 해제 직후에 판정한다(#26).
      */
-    private fun rescheduleReAlert(state: SessionState, settings: TrackingSettings): Reduction {
+    private fun rescheduleReAlert(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
         if (state.phase != Phase.Active) return Reduction(state)
         val session = state.openSession()
-        // 알림이 막혔으면 다시 걸지 않는다. 직전 알림 시각이 더는 움직이지 않으므로 그 시각 +
-        // 주기는 이미 지난 시각이고, 다시 걸면 곧바로 깨어나 같은 자리로 돌아오는 쳇바퀴가 된다.
-        // 걸어 둔 깨우기 하나가 이렇게 한 번 헛돌고 끝나며, 토글을 다시 켜면 `1분 tick`이
-        // 재알림을 집어 올린다.
-        if (!alertsAllowed(session, settings)) return Reduction(state)
         val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return Reduction(state)
 
-        return Reduction(
-            state = state,
-            effects = listOf(
-                SessionEffect.ScheduleReAlert(lastAlertAtMillis + settings.reAlertIntervalMillis),
-            ),
-        )
+        // 지난 시각으로는 걸지 않는다. 그 시각이 지났는데도 재알림이 나가지 않았다면 막은 것이
+        // 무엇이든 다시 걸 이유가 없고, 서비스의 깨우기가 음수만큼 기다려 곧바로 돌아오므로 같은
+        // 자리를 맴돌게 된다. 막는 이유를 하나씩 세는 대신 여기서 종류째 닫는다.
+        val atMillis = lastAlertAtMillis + settings.reAlertIntervalMillis
+        if (atMillis <= nowMillis) return Reduction(state)
+
+        // 알림이 막혀 있으면 기다릴 것도 없다. 위의 비교가 이미 맴돌기를 막지만 왜 걸지 않는지는
+        // 이쪽이 말한다. 토글을 다시 켜면 `1분 tick`이 밀린 재알림을 집어 올린다.
+        if (!alertsAllowed(session, settings)) return Reduction(state)
+
+        return Reduction(state, listOf(SessionEffect.ScheduleReAlert(atMillis)))
     }
 
     /**
