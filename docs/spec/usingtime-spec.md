@@ -43,7 +43,7 @@ Google Play 배포 대상 일반 사용자. Android 단독. 무료, 광고 없�
 | **세션 진행** | 잠금 해제 상태, 세션이 열려 있음 | 실행 중 | 있음 |
 | **유예 중** | 잠금(또는 화면 꺼짐) 상태이지만 유예 시간이 아직 지나지 않아 세션이 열려 있음 | 실행 중 | 있음 |
 
-"잠금 해제 상태"의 정의: `PowerManager.isInteractive() == true` 이고 `KeyguardManager.isKeyguardLocked() == false`. 잠금 화면이 '없음'인 기기는 화면이 켜질 때마다 잠금 해제 상태가 되므로 화면 켜짐~꺼짐이 한 세션이 된다. 그 기기에는 keyguard가 없어 `ACTION_USER_PRESENT`를 보낼 주체도 없으므로, 서비스가 `ACTION_SCREEN_ON` 직후의 `isKeyguardLocked()`를 보고 잠겨 있지 않으면 `잠금 해제` 이벤트로 옮긴다(5절 감지와 같은 판정, [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 세션 규칙·유예 시간에는 이 기기를 위한 분기가 없다.
+"잠금 해제 상태"의 정의: `PowerManager.isInteractive() == true` 이고 `KeyguardManager.isKeyguardLocked() == false`. 잠금 화면이 '없음'인 기기는 화면이 켜질 때마다 잠금 해제 상태가 되므로 화면 켜짐~꺼짐이 한 세션이 된다. 그 기기에는 keyguard가 없어 `ACTION_USER_PRESENT`를 보낼 주체도 없다. 그래서 서비스는 `ACTION_SCREEN_ON` 직후 `isKeyguardLocked()`를 읽어 **잠겨 있지 않으면** `잠금 해제` 이벤트로 옮긴다([ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 기기 종류로 가르지 않는다. 잠금 지연("화면이 꺼지고 N초 뒤 잠금")이나 Smart Lock으로 잠기지 않은 채 화면이 켜진 경우도 위 정의 그대로 잠금 해제 상태이기 때문이다. 세션 규칙·유예 시간에는 잠금 화면 '없음'을 위한 분기가 없다.
 
 ### 이벤트
 
@@ -51,7 +51,7 @@ Google Play 배포 대상 일반 사용자. Android 단독. 무료, 광고 없�
 |---|---|
 | `측정 시작` | 설정 화면 상태 카드 버튼 |
 | `측정 중지` | 설정 화면 상태 카드 버튼 |
-| `잠금 해제` | `ACTION_USER_PRESENT` 수신, 또는 `ACTION_SCREEN_ON` 직후 `isKeyguardLocked() == false` (잠금 화면 '없음' 기기) |
+| `잠금 해제` | `ACTION_USER_PRESENT` 수신, 또는 `ACTION_SCREEN_ON` 직후 `isKeyguardLocked() == false` |
 | `잠금` | `ACTION_SCREEN_OFF` 수신 |
 | `화면 켜짐` | `ACTION_SCREEN_ON` 수신 + `isKeyguardLocked() == true` (잠금 해제 없이 잠금 화면만 켜진 것) |
 | `유예 만료` | 유예 타이머 또는 `setAndAllowWhileIdle` 알람, 또는 `화면 켜짐`·`잠금 해제` 시 타임스탬프 재판정 |
@@ -69,7 +69,7 @@ Google Play 배포 대상 일반 사용자. Android 단독. 무료, 광고 없�
 | 세션 없음 | `잠금 해제` | 세션 진행 | 지금 새 세션 시작. 알림 상태(임계값 알림 여부·재알림·세션 알림 끄기) 초기화. 재시작 안내 1회성 플래그가 있으면 해제. 상시 표시를 세션 문구로 갱신 |
 | 세션 없음 | `화면 켜짐` / `잠금` | 세션 없음 | 없음. 잠금 화면 '없음' 감지 재판정(5절) |
 | 세션 진행 | `잠금` | 유예 중 (유예 시간이 0이면 곧바로 **세션 없음**) | 잠금 시각 저장. 유예 만료 알람 예약. 상시 표시를 유예 문구로 갱신. 유예 0이면 `유예 만료`와 같은 처리 |
-| 세션 진행 | `잠금 해제` | 세션 진행 | 없음 (잠금 화면 '없음' 기기는 화면이 켜질 때마다 이 이벤트가 오므로 무시) |
+| 세션 진행 | `잠금 해제` | 세션 진행 | 없음 (잠겨 있지 않은 채 화면이 켜지는 기기는 화면이 켜질 때마다 이 이벤트가 오므로 무시) |
 | 세션 진행 | `임계값 도달` | 세션 진행 | 임계값 알림 발송(4절 조건). 재알림 타이머 시작 |
 | 세션 진행 | `재알림 주기 경과` | 세션 진행 | 재알림 발송(4절 조건). 재알림 타이머 재시작 |
 | 세션 진행 | `1분 tick` | 세션 진행 | heartbeat 저장(7절). 상시 표시 본문·막대 갱신 |
@@ -188,9 +188,11 @@ stateDiagram-v2
 
 ### 잠금 화면 '없음' 감지
 
-`ACTION_SCREEN_ON` 직후 `KeyguardManager.isKeyguardLocked() == false`면 잠금 화면 없음으로 보고 안내 줄을 켠다. 매 `SCREEN_ON`마다 재판정하므로 잠금 설정을 바꾸면 자연히 사라진다. 권한 불필요.
+`ACTION_SCREEN_ON` 직후 `KeyguardManager.isKeyguardLocked() == false`이고 `isDeviceSecure() == false`면 잠금 화면 없음으로 보고 안내 줄을 켠다. 매 `SCREEN_ON`마다 재판정하므로 잠금 설정을 바꾸면 자연히 사라진다. 권한 불필요.
 
-같은 판정이 그 `SCREEN_ON`을 어떤 이벤트로 넣을지도 정한다. 잠겨 있으면 `화면 켜짐`, 잠겨 있지 않으면 `잠금 해제`다(3절, [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 판정은 서비스가 살아 있는 동안만 하므로, 측정이 꺼져 있거나 켠 뒤 아직 화면이 꺼졌다 켜지지 않았으면 안내 줄이 없다.
+`isKeyguardLocked()`는 "지금 잠금 화면이 떠 있나"에 답하지 "이 기기에 잠금 화면이 있나"에 답하지 않는다. 잠금 지연이나 Smart Lock으로 잠기지 않은 채 화면이 켜지는 기기에서도 거짓이라, 그것만 보면 PIN을 쓰는 사용자에게 안내 줄이 상주한다. 잠금 수단이 설정돼 있는지는 `isDeviceSecure()`가 답하므로 둘을 함께 본다. 스와이프 잠금 화면은 첫 판정에 걸린다(화면이 켜지는 순간 잠금 화면이 떠 있다).
+
+그 `SCREEN_ON`을 어떤 이벤트로 넣을지는 `isKeyguardLocked()` 하나가 정한다. 잠겨 있으면 `화면 켜짐`, 잠겨 있지 않으면 `잠금 해제`다(3절, [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md)). 판정은 서비스가 살아 있는 동안만 하므로, 측정이 꺼져 있거나 켠 뒤 아직 화면이 꺼졌다 켜지지 않았으면 안내 줄이 없다.
 
 ## 6. 설정 값
 
@@ -374,3 +376,4 @@ Room 테이블 `sessions`:
 | 잠금 중에는 `IMPORTANCE_MIN` 대기 알림으로 전환 ([#2](https://github.com/sihun0927-sketch/UsingYourTime/issues/2) research 제안) | 유예 중에도 상시 표시를 그대로 유지 | [#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#9](https://github.com/sihun0927-sketch/UsingYourTime/issues/9) |
 | 유예 만료 시 상시 표시·임계값 알림 모두 제거 ([#4](https://github.com/sihun0927-sketch/UsingYourTime/issues/4), [#9](https://github.com/sihun0927-sketch/UsingYourTime/issues/9)) | 임계값 알림만 제거. 상시 표시는 측정이 켜진 동안 항상 있고 세션이 없으면 "측정 대기 중" 문구로 바뀜 | [#15](https://github.com/sihun0927-sketch/UsingYourTime/issues/15) |
 | 잠금 화면 '없음' 기기에도 `ACTION_USER_PRESENT`가 오므로 코드 분기가 없다 (3절) | 그 기기에는 오지 않는다(에뮬레이터 관측). 서비스가 `ACTION_SCREEN_ON` + `isKeyguardLocked() == false`를 `잠금 해제`로 옮긴다. 세션 규칙은 그대로 | [#22](https://github.com/sihun0927-sketch/UsingYourTime/issues/22), [ADR 0002](../adr/0002-screen-on-without-keyguard-is-an-unlock.md) |
+| 잠금 화면 '없음' 감지는 `isKeyguardLocked() == false` 하나로 한다 (5절) | `isDeviceSecure() == false`를 함께 본다. 잠금 지연·Smart Lock으로 잠기지 않은 기기에 안내 줄이 상주하는 것을 막는다 | [#22](https://github.com/sihun0927-sketch/UsingYourTime/issues/22) |

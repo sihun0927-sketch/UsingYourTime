@@ -58,7 +58,9 @@ class TrackingService : Service() {
     private val graceExpiryAlarm by lazy { GraceExpiryAlarm(this) }
 
     /** 화면이 켜지는 순간 잠금 화면이 있는지 묻는 곳(스펙 5절). 권한이 필요 없다. */
-    private val keyguardManager by lazy { getSystemService(KeyguardManager::class.java) }
+    private val keyguardManager by lazy {
+        requireNotNull(getSystemService(KeyguardManager::class.java))
+    }
 
     /**
      * 효과 실행 줄. 리시버·타이머가 이벤트를 넣기 시작하면서 효과 목록이 겹칠 수 있게 됐다.
@@ -82,13 +84,36 @@ class TrackingService : Service() {
     /**
      * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기. manifest로는 받을 수 없어 서비스가 살아 있는
      * 동안만 런타임 등록한다(스펙 8절).
+     *
+     * `ACTION_SCREEN_ON`만 화면이 켜진 직후의 잠금 상태를 읽어 간다. 그 자리에서 답해야 하는
+     * 질문이 둘이기 때문이다(스펙 5절, ADR 0002).
+     *
+     * **어떤 이벤트로 넣나** — `isKeyguardLocked()`가 정한다. 잠금 화면이 '없음'인 기기에서는
+     * 화면이 켜지는 순간이 곧 잠금 해제라 `ACTION_USER_PRESENT`를 보낼 주체가 없다. 그 기기에서도
+     * 세션이 열리도록 잠겨 있지 않으면 `잠금 해제`로 옮긴다. 세션 규칙에 예외를 두는 것이 아니라
+     * 이벤트를 옮기는 것이고, 리듀서는 이 분기를 모른다. 잠금 화면이 있는 기기는 화면이 켜지는
+     * 순간 아직 잠겨 있어 `화면 켜짐` 그대로 가고, 곧이어 오는 진짜 `ACTION_USER_PRESENT`가
+     * 세션을 연다.
+     *
+     * **잠금 화면이 없는 기기인가** — 안내 줄의 질문이고, `isKeyguardLocked()`만으로는 답이 되지
+     * 않는다. 잠금 지연("화면이 꺼지고 N초 뒤 잠금")이나 Smart Lock으로 잠기지 않은 채 화면이
+     * 켜지는 기기에서도 거짓이라, PIN을 쓰는 사용자에게 "잠금 화면이 없어…"가 상주하게 된다.
+     * 잠금 수단이 있는지는 `isDeviceSecure()`가 답한다. 그 경우에도 이벤트는 `잠금 해제`가 맞다.
+     * 그 순간 기기는 스펙 3절의 정의대로 실제 잠금 해제 상태다.
      */
     private val eventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val event = when (intent?.action) {
                 Intent.ACTION_USER_PRESENT -> SessionEvent.Unlock
                 Intent.ACTION_SCREEN_OFF -> SessionEvent.Lock
-                Intent.ACTION_SCREEN_ON -> screenOnEvent()
+                Intent.ACTION_SCREEN_ON -> {
+                    val unlocked = !keyguardManager.isKeyguardLocked
+                    TrackingStatus.publishLockScreenAbsent(
+                        absent = unlocked && !keyguardManager.isDeviceSecure,
+                    )
+                    if (unlocked) SessionEvent.Unlock else SessionEvent.ScreenOn
+                }
+
                 GraceExpiryAlarm.ACTION -> SessionEvent.GraceExpired
                 else -> return
             }
@@ -183,25 +208,6 @@ class TrackingService : Service() {
             persistentDisplay.build(content),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
-    }
-
-    /**
-     * `ACTION_SCREEN_ON`을 리듀서에 넣을 이벤트로 옮긴다. 화면이 켜진 직후의 잠금 화면 판정이
-     * 안내 줄(스펙 5절)과 이 번역을 함께 정한다.
-     *
-     * 잠금 화면이 '없음'인 기기에서는 화면이 켜지는 순간이 곧 잠금 해제라 `ACTION_USER_PRESENT`를
-     * 보낼 주체가 없다. 그 기기에서도 세션이 열리도록 여기서 `잠금 해제`로 옮긴다. 세션 규칙에
-     * 예외를 두는 것이 아니라 이벤트를 옮기는 것이고, 리듀서는 이 분기를 모른다(ADR 0002).
-     *
-     * 잠금 화면이 있는 기기는 화면이 켜지는 순간 아직 잠겨 있어 `화면 켜짐` 그대로 가고, 곧이어
-     * 오는 진짜 `ACTION_USER_PRESENT`가 세션을 연다. "화면이 꺼지고 N초 뒤 잠금" 설정의 그 N초
-     * 안에 다시 켜면 잠겨 있지 않아 여기서도 `잠금 해제`가 되는데, 그 순간 기기는 실제로 잠금
-     * 해제 상태다(스펙 3절의 정의). 안내 줄만 한 번 잘못 켜지고 다음 `화면 켜짐`에 사라진다.
-     */
-    private fun screenOnEvent(): SessionEvent {
-        val locked = keyguardManager.isKeyguardLocked
-        TrackingStatus.publishLockScreenAbsent(absent = !locked)
-        return if (locked) SessionEvent.ScreenOn else SessionEvent.Unlock
     }
 
     private fun registerEventReceiver() {
