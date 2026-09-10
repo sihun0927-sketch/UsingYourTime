@@ -602,10 +602,14 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `유예 안에 잠금 해제되어 세션이 이어지면 알림 상태가 그대로 남는다`() {
-        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
-        val alerts = alertedMinutesAgo(20)
-        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS, alerts)
+    fun `유예 중에 임계값을 넘긴 세션은 잠금 해제 직후 임계값 알림을 1회 받는다`() {
+        val startedAtMillis = nowMillis - 31 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS)
+        val alerts = AlertState(
+            thresholdAlertedAtMillis = nowMillis,
+            lastAlertAtMillis = nowMillis,
+            count = 1,
+        )
 
         val reduction = reduce(grace, SessionEvent.Unlock)
 
@@ -613,26 +617,115 @@ class SessionReducerTest {
             SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts)),
             reduction.state,
         )
-    }
-
-    @Test
-    fun `다음 재알림 시각이 지나면 상시 표시에 남은 분을 적지 않는다`() {
-        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
-        val grace = graceSince(startedAtMillis, nowMillis - MINUTE_MILLIS, alertedMinutesAgo(20))
-
-        val reduction = reduce(grace, SessionEvent.Unlock)
-
-        // 밀린 재알림을 이 자리에서 1회 보내는 일은 #26이 맡는다. 그전까지 본문은 초과했다는
-        // 사실만 적는다(`docs/adr/0003-persistent-display-body-when-no-next-alert.md`).
         assertEquals(
             listOf(
                 SessionEffect.UpdatePersistentDisplay(
-                    activeContent(startedAtMillis, elapsedMinutes = 50, nextAlertMinutes = null),
+                    activeContent(startedAtMillis, elapsedMinutes = 31, nextAlertMinutes = 15),
                 ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 31, reAlertMinutes = 15, count = 1),
+                ),
+                SessionEffect.SaveAlertState(alerts),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
                 SessionEffect.SaveLockedAt(lockedAtMillis = null),
                 SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
+        )
+    }
+
+    @Test
+    fun `유예 중에 재알림 주기가 지난 세션은 잠금 해제 직후 재알림을 1회 받는다`() {
+        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS, alertedMinutesAgo(20))
+        val alerts = AlertState(
+            thresholdAlertedAtMillis = nowMillis - 20 * MINUTE_MILLIS,
+            lastAlertAtMillis = nowMillis,
+            count = 2,
+        )
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts)),
+            reduction.state,
+        )
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 50, nextAlertMinutes = 15),
+                ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 50, reAlertMinutes = 15, count = 2),
+                ),
+                SessionEffect.SaveAlertState(alerts),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `재알림 주기가 유예 중에 두 번 지나도 잠금 해제 직후 재알림은 1회다`() {
+        val startedAtMillis = nowMillis - 65 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS, alertedMinutesAgo(35))
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        // 밀린 두 주기가 회차를 둘 올리지 않는다. 회차는 1에서 2로만 간다(전이표).
+        assertEquals(2, reduction.state.session?.alerts?.count)
+        assertEquals(
+            listOf(
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 65, reAlertMinutes = 15, count = 2),
+                ),
+            ),
+            reduction.effects.filterIsInstance<SessionEffect.PostThresholdAlert>(),
+        )
+        // 다음 재알림은 밀린 주기가 아니라 방금 보낸 알림부터 잰다.
+        assertEquals(
+            listOf(SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS)),
+            reduction.effects.filterIsInstance<SessionEffect.ScheduleReAlert>(),
+        )
+    }
+
+    @Test
+    fun `유예 중에 임계값을 넘겨도 화면만 켜지면 알림이 나가지 않는다`() {
+        val grace = graceSince(nowMillis - 31 * MINUTE_MILLIS, nowMillis - 2 * MINUTE_MILLIS)
+
+        val reduction = reduce(grace, SessionEvent.ScreenOn)
+
+        assertEquals(grace, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `유예가 지난 뒤 잠금 해제되면 새 세션이라 밀린 알림이 나가지 않는다`() {
+        val grace = graceSince(nowMillis - 40 * MINUTE_MILLIS, nowMillis - 10 * MINUTE_MILLIS)
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        assertEquals(AlertState.None, reduction.state.session?.alerts)
+        assertEquals(
+            emptyList<SessionEffect>(),
+            reduction.effects.filterIsInstance<SessionEffect.PostThresholdAlert>(),
+        )
+    }
+
+    @Test
+    fun `유예 안에 잠금 해제되어 세션이 이어지면 알림 상태가 그대로 남는다`() {
+        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
+        // 재알림 주기가 아직 남은 세션이라 잠금 해제의 즉시 판정에 걸리지 않는다.
+        val alerts = alertedMinutesAgo(5)
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS, alerts)
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts)),
+            reduction.state,
         )
     }
 

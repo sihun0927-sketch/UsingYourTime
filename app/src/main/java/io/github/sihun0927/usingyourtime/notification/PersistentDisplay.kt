@@ -80,9 +80,8 @@ class PersistentDisplay(private val context: Context) {
      * 세션 알림 끄기 뒤에는 그 사실을 적는다. 알림이 멈춘 것이지 측정이 멈춘 것이 아니라는 말이
      * 필요한 자리다(스펙 4절 표).
      *
-     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 임계값 알림 토글을 끈 동안, 그리고 유예
-     * 안에 임계값을 넘긴 세션이 잠금 해제로 돌아온 직후(그 자리에서 알리는 일은 #26)가 그렇다.
-     * 결정 배경은 `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
+     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 임계값 알림이 막힌 동안(토글 꺼짐)이
+     * 그렇다. 결정 배경은 `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
      */
     private fun activeBody(content: PersistentDisplayContent.Active): String = when {
         !content.exceeded -> context.getString(
