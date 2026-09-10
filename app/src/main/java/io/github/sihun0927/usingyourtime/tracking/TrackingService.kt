@@ -45,8 +45,8 @@ private const val TICK_MILLIS = 60_000L
  * 리듀서가 돌려준 효과를 Android API로 옮기고, 새 상태를 [TrackingStatus]에 흘려보낸다.
  * 세션 규칙은 하나도 여기에 없다.
  *
- * 시스템이 START_STICKY로 되살리면 저장된 세션과 지금 잠금 상태로 재동기화한다(스펙 7절, [resync]).
- * 부팅·업데이트·앱 실행에서 서비스를 다시 띄우는 일은 티켓 #28이 맡는다.
+ * 상태를 잃은 채 다시 뜨면 저장된 세션과 지금 잠금 상태로 재동기화한다(스펙 7절, [resync]).
+ * START_STICKY 재시작·부팅·업데이트·앱 실행이 모두 그 한 길로 들어온다.
  */
 class TrackingService : Service() {
 
@@ -90,6 +90,21 @@ class TrackingService : Service() {
      * 하나뿐이고, 그마저도 어긋나면 첫 `1분 tick`이 새 값으로 다시 판정한다.
      */
     private var settings = TrackingSettings()
+
+    /**
+     * 서비스가 뜬 뒤 상태를 한 번이라도 세웠는지. 재동기화를 시작했거나 이벤트를 하나라도 받았으면
+     * 참이다. 참이 된 뒤에 오는 재동기화 요청은 흘려보낸다.
+     *
+     * **겹쳐 들어오기 때문에 필요하다.** Android 15+에서 강제 종료 뒤 앱을 열면 Stopped 상태를
+     * 벗어나며 오는 `BOOT_COMPLETED`([RestartReceiver])와 액티비티의 재기동이 거의 동시에 서비스를
+     * 부른다(스펙 7절). [resync]는 저장을 읽는 동안 suspend하므로, 둘 다 재동기화하면 첫 번째가
+     * 세션을 닫고 여는 저장을 끝내기 전에 두 번째가 같은 옛 행을 읽는다. 규칙 4에서 그러면 세션을
+     * 두 번 닫고 두 번 열어 "열린 행 최대 1개"가 잠시 깨지고 쓰레기 행이 남는다.
+     *
+     * 상태를 세우는 일은 서비스가 뜬 뒤 한 번뿐이다. 이미 살아 있는 서비스에는 재동기화할 것이
+     * 없고, 그 뒤로는 리시버·타이머가 넣는 이벤트가 상태를 옮긴다.
+     */
+    private var stateEstablished = false
 
     private var graceExpiryTimer: Job? = null
 
@@ -154,6 +169,7 @@ class TrackingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        TrackingStatus.publishRunning()
         persistentDisplay.ensureChannel()
         thresholdAlert.ensureChannel()
         serviceScope.launch {
@@ -169,11 +185,22 @@ class TrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val event = eventOf(intent?.action)
         when {
-            event != null -> dispatch(event)
+            event != null -> {
+                stateEstablished = true
+                dispatch(event)
+            }
 
-            // 시스템이 START_STICKY로 되살렸다(`intent == null`). 넣을 이벤트 대신 저장된 세계를
-            // 읽어 재동기화한다(스펙 7절).
-            intent == null -> resync()
+            // 넣을 이벤트 대신 저장된 세계를 읽어 재동기화한다(스펙 7절). 시스템이 START_STICKY로
+            // 되살렸거나(`intent == null`), 부팅·업데이트·앱 실행이 다시 띄운 경우다. 겹쳐 온
+            // 두 번째 요청은 흘려보낸다([stateEstablished]).
+            intent == null || intent.action == ACTION_RESYNC -> {
+                if (stateEstablished) {
+                    Log.i(TAG, "이미 상태를 세운 뒤라 재동기화 요청을 흘려보낸다")
+                } else {
+                    stateEstablished = true
+                    resync()
+                }
+            }
 
             // 알 수 없는 요청. 넣을 이벤트가 없으니 상시 표시도 띄울 수 없어 서비스를 내린다.
             else -> {
@@ -185,7 +212,8 @@ class TrackingService : Service() {
     }
 
     /**
-     * 저장된 세션과 지금 기기 상태로 재동기화한다(스펙 7절). START_STICKY 재시작이 유일한 입구다.
+     * 저장된 세션과 지금 기기 상태로 재동기화한다(스펙 7절). START_STICKY 재시작·부팅·업데이트·
+     * 앱 실행 시 재기동이 모두 이 하나를 부른다("모든 경로 단일 규칙").
      *
      * **상시 표시가 먼저다.** 저장을 읽는 것은 suspend라 언제 끝날지 모르는데, 시스템이 되살린
      * 포그라운드 서비스는 곧바로 `startForeground()`를 부를 수 있고 또 불러야 한다(#8 프로토타입).
@@ -403,10 +431,27 @@ class TrackingService : Service() {
         private const val TAG = "UsingTime"
         private const val ACTION_START_TRACKING = "io.github.sihun0927.usingyourtime.action.START_TRACKING"
         private const val ACTION_PAUSE = "io.github.sihun0927.usingyourtime.action.PAUSE"
+        private const val ACTION_RESYNC = "io.github.sihun0927.usingyourtime.action.RESYNC"
 
         /** 사용자가 "측정 시작"을 눌렀을 때. 서비스의 첫 시작은 이 경로뿐이다(스펙 8절). */
         fun startTracking(context: Context) {
             ContextCompat.startForegroundService(context, intentFor(context, ACTION_START_TRACKING))
+        }
+
+        /**
+         * 측정을 켜 둔 채 서비스만 사라졌을 때 다시 띄운다(스펙 7절 재시작 경로). 부팅·업데이트의
+         * [RestartReceiver]와 앱 실행 시 재기동이 부른다.
+         *
+         * **첫 시작이 아니다.** 부르는 쪽이 `tracking_on == true`를 먼저 확인하므로, 사용자가
+         * 측정 시작을 누른 적이 있어야만 여기까지 온다(스펙 8절 "서비스 첫 시작은 사용자의 탭뿐").
+         * 그 사이 측정이 꺼졌더라도 [resync]가 저장된 값을 다시 읽어 서비스를 도로 내린다.
+         *
+         * 백그라운드에서도 부르므로 [startTracking]과 같이 `startForegroundService`를 쓴다. 세 시작
+         * 트리거(사용자 탭·`BOOT_COMPLETED`·`MY_PACKAGE_REPLACED`)와 화면이 떠 있는 앱 실행이 모두
+         * API 31+ 백그라운드 FGS 시작 제한의 예외라 분기가 없다(스펙 8절 API 표).
+         */
+        fun restart(context: Context) {
+            ContextCompat.startForegroundService(context, intentFor(context, ACTION_RESYNC))
         }
 
         /**

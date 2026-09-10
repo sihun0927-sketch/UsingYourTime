@@ -40,8 +40,8 @@ private const val TICK_MILLIS = 1_000L
  * 3줄(측정 상태·연속 사용 시간·버튼)에 꺼짐 설명 문단과 조건부 안내 줄이 붙는다.
  * [sessionStartedAtMillis]가 있으면 연속 사용 시간이 1초마다 올라가고, 없으면 "—"다.
  *
- * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 지금 있는 것은 알림 권한·[muted]·
- * [lockScreenAbsent]이고, 사이에 들어갈 재시작 안내는 #28에서 온다.
+ * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 알림 권한 → [muted] → [restartNoticeAtMillis]
+ * → [lockScreenAbsent].
  */
 @Composable
 internal fun StatusCard(
@@ -49,6 +49,7 @@ internal fun StatusCard(
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
     muted: Boolean,
+    restartNoticeAtMillis: Long?,
     lockScreenAbsent: Boolean,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
@@ -85,6 +86,18 @@ internal fun StatusCard(
             if (muted) {
                 SupportingText(
                     text = stringResource(R.string.status_card_muted),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // 측정이 꺼져 있으면 보여주지 않는다. 사용자가 측정 중지를 눌러 놓고도 "지금 다시
+            // 시작했어요"를 읽게 된다. 저장된 값은 그대로 두고 화면에서만 가린다. 지우는 시점은
+            // 스펙 7절대로 "그 다음 세션이 시작될 때"이고, 그것은 리듀서가 정한다.
+            if (trackingOn && restartNoticeAtMillis != null) {
+                SupportingText(
+                    text = stringResource(
+                        R.string.status_card_restart_notice,
+                        formatTime(restartNoticeAtMillis),
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -155,6 +168,19 @@ private fun elapsedSeconds(sessionStartedAtMillis: Long): Long {
 }
 
 /**
+ * 재시작 안내 줄의 시각 표기(스펙 7절 "HH:MM에 측정이 중단됐다가").
+ *
+ * 자릿수를 직접 짜지 않고 [DateUtils]에 맡긴다. 사용자가 12시간제를 쓰면 "오후 3:04", 24시간제면
+ * "15:04"로 나와, 같은 기기의 시계·알림에서 보던 모양 그대로다.
+ */
+@Composable
+private fun formatTime(atMillis: Long): String = DateUtils.formatDateTime(
+    LocalContext.current,
+    atMillis,
+    DateUtils.FORMAT_SHOW_TIME,
+)
+
+/**
  * 알림 권한 안내 줄(스펙 5절). 요청 전에는 왜 필요한지, 거부 뒤에는 어디서 켜는지 알린다.
  * 거부 줄은 줄 전체가 앱 정보 화면으로 가는 딥링크다.
  */
@@ -222,6 +248,7 @@ private fun StatusCardOffPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -238,6 +265,7 @@ private fun StatusCardActivePreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -254,6 +282,7 @@ private fun StatusCardLockScreenAbsentPreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = true,
             onStartTracking = {},
             onPause = {},
@@ -270,6 +299,24 @@ private fun StatusCardMutedPreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = true,
+            restartNoticeAtMillis = null,
+            lockScreenAbsent = false,
+            onStartTracking = {},
+            onPause = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun StatusCardRestartNoticePreview() {
+    UsingTimeTheme {
+        StatusCard(
+            trackingOn = true,
+            sessionStartedAtMillis = System.currentTimeMillis() - 3 * 60 * TICK_MILLIS,
+            notificationPermission = NotificationPermission.Granted,
+            muted = false,
+            restartNoticeAtMillis = System.currentTimeMillis() - 47 * 60 * TICK_MILLIS,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -286,6 +333,7 @@ private fun StatusCardPermissionRequiredPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Required,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -302,6 +350,7 @@ private fun StatusCardPermissionDeniedPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Denied,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
