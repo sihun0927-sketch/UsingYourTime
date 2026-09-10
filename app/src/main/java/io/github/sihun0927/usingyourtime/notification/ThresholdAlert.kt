@@ -15,6 +15,10 @@ import io.github.sihun0927.usingyourtime.session.ThresholdAlertContent
  *
  * 이 알림은 항상 임계값을 넘긴 상태에서만 뜨므로 색이 늘 경고색이다(#16 결정).
  *
+ * 탭해도 스스로 사라지지 않는다(`setAutoCancel` 없음). 스펙 4절이 제거 시점을 유예 만료·세션 알림
+ * 끄기·측정 중지 셋으로 못박았고, 사용자가 손으로 지우는 것은 "다음 재알림까지의 스누즈"라는 제
+ * 뜻이 따로 있다. 탭으로 지워지면 그 셋도 이것도 아닌 네 번째 길이 된다.
+ *
  * 액션 버튼 "이번 세션 알림 끄기"와 재알림 본문·부제 회차는 이후 티켓(#24·#25)에서 들어온다.
  */
 class ThresholdAlert(private val context: Context) {
@@ -37,7 +41,6 @@ class ThresholdAlert(private val context: Context) {
             .setColor(ContextCompat.getColor(context, R.color.notification_warning))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
             .setContentIntent(settingsPendingIntent(context))
             .build()
 

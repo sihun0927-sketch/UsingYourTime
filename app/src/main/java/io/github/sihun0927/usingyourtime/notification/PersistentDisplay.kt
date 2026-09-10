@@ -53,7 +53,9 @@ class PersistentDisplay(private val context: Context) {
      * 세션이 열려 있을 때의 상시 표시. 헤더 시간이 세션 시작 시각부터 올라가는 chronometer이고,
      * 막대는 임계값까지의 진행이다. 유예 중에도 셋 다 그대로다(스펙 4절).
      */
-    private fun open(content: PersistentDisplayContent.Open, body: String): Notification = base()
+    private fun open(content: PersistentDisplayContent.Open, body: String): Notification = base(
+        colorRes = if (content.exceeded) R.color.notification_warning else R.color.notification_accent,
+    )
         .setContentTitle(
             if (content.exceeded) {
                 context.getString(R.string.persistent_display_title_exceeded, content.thresholdMinutes)
@@ -70,14 +72,15 @@ class PersistentDisplay(private val context: Context) {
             content.elapsedMinutes.coerceAtMost(content.thresholdMinutes),
             false,
         )
-        .setColor(color(if (content.exceeded) R.color.notification_warning else R.color.notification_accent))
         .build()
 
     /**
      * 세션 진행 중 본문(스펙 4절 표). 임계값 전에는 남은 시간을, 넘긴 뒤에는 다음 알림 예고를 적는다.
      *
-     * 다음 알림이 없으면(이 세션에서 아직 알린 적이 없으면) 초과했다는 사실만 적는다. 유예 안에
-     * 임계값을 넘긴 세션이 잠금 해제로 돌아온 직후가 그렇고, 그 자리에서 알리는 일은 #26이 맡는다.
+     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 유예 안에 임계값을 넘긴 세션이 잠금
+     * 해제로 돌아온 직후(그 자리에서 알리는 일은 #26), 그리고 재알림이 아직 없어 주기가 지나가
+     * 버린 동안(#24)이 그렇다. 스펙 4절이 임계값 알림 토글을 끈 초과에 준 문구와 같은 자리다.
+     * 결정 배경은 `docs/adr/0002-persistent-display-body-when-no-next-alert.md`.
      */
     private fun activeBody(content: PersistentDisplayContent.Active): String = when {
         !content.exceeded -> context.getString(
@@ -94,18 +97,19 @@ class PersistentDisplay(private val context: Context) {
         else -> context.getString(R.string.persistent_display_body_exceeded, content.thresholdMinutes)
     }
 
-    /** 세션 없음의 헤더 시간은 "없음"이라(스펙 4절 표) 기본값은 시간을 감춘 쪽이다. */
-    private fun base(): NotificationCompat.Builder =
+    /**
+     * 세션 없음의 헤더 시간은 "없음"이라(스펙 4절 표) 기본값은 시간을 감춘 쪽이다.
+     * 색도 마찬가지로 초과가 없는 쪽, 곧 앱 accent가 기본이다.
+     */
+    private fun base(@ColorRes colorRes: Int = R.color.notification_accent): NotificationCompat.Builder =
         NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setShowWhen(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setColor(color(R.color.notification_accent))
+            .setColor(ContextCompat.getColor(context, colorRes))
             .setContentIntent(settingsPendingIntent(context))
-
-    private fun color(@ColorRes colorRes: Int): Int = ContextCompat.getColor(context, colorRes)
 
     /**
      * 남은 유예를 스펙 4절의 `m:ss`로 적는다. 유예는 길어야 15분이라 시간 자리가 필요 없다.

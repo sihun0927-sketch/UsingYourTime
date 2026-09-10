@@ -158,58 +158,48 @@ object SessionReducer {
         settings: TrackingSettings,
     ): Reduction {
         if (state.phase != Phase.Active) return Reduction(state)
-        val alerting = thresholdAlerting(state.openSession(), nowMillis, settings)
-            ?: return Reduction(state)
-        return postThresholdAlert(alerting, nowMillis, settings)
+        return thresholdAlert(state.openSession(), nowMillis, settings) ?: Reduction(state)
     }
 
     /**
-     * 지금 임계값 알림을 보낼 상황이면 알림 상태를 적은 세션, 아니면 null. 부르는 쪽이 세션 진행
-     * 상태인지를 먼저 가른다.
+     * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null. 부르는 쪽이 세션 진행 상태인지를
+     * 먼저 가른다.
      *
      * 발송 조건은 스펙 4절이다. 연속 사용 시간이 임계값에 닿았고, 이 세션에서 아직 알린 적이 없어야
      * 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이 조건에 더해진다.
+     *
+     * 상시 표시가 같은 자리에서 초과 상태로 바뀐다. 제목의 "초과"·가득 찬 막대·경고색이 알림과 함께
+     * 움직여야 하기 때문이다(스펙 4절 경고색 규칙).
      */
-    private fun thresholdAlerting(
+    private fun thresholdAlert(
         session: Session,
         nowMillis: Long,
         settings: TrackingSettings,
-    ): Session? {
+    ): Reduction? {
         if (session.alerts.alerted) return null
         if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
 
-        return session.copy(
+        val alerting = session.copy(
             alerts = AlertState(
                 thresholdAlertedAtMillis = nowMillis,
                 lastAlertAtMillis = nowMillis,
                 count = 1,
             ),
         )
-    }
-
-    /**
-     * 임계값 알림을 보내는 전이. [alerting]은 알림 상태를 이미 적은 세션이다.
-     *
-     * 상시 표시가 같은 자리에서 초과 상태로 바뀐다. 제목의 "초과"·가득 찬 막대·경고색이 알림과 함께
-     * 움직여야 하기 때문이다(스펙 4절 경고색 규칙).
-     */
-    private fun postThresholdAlert(
-        alerting: Session,
-        nowMillis: Long,
-        settings: TrackingSettings,
-    ): Reduction = Reduction(
-        state = SessionState(Phase.Active, alerting),
-        effects = listOf(
-            SessionEffect.UpdatePersistentDisplay(activeContent(alerting, nowMillis, settings)),
-            SessionEffect.PostThresholdAlert(
-                ThresholdAlertContent(
-                    elapsedMinutes = elapsedMinutes(alerting, nowMillis),
-                    reAlertMinutes = settings.reAlertMinutes,
+        return Reduction(
+            state = SessionState(Phase.Active, alerting),
+            effects = listOf(
+                SessionEffect.UpdatePersistentDisplay(activeContent(alerting, nowMillis, settings)),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(
+                        elapsedMinutes = elapsedMinutes(alerting, nowMillis),
+                        reAlertMinutes = settings.reAlertMinutes,
+                    ),
                 ),
+                SessionEffect.SaveAlertState(alerting.alerts),
             ),
-            SessionEffect.SaveAlertState(alerting.alerts),
-        ),
-    )
+        )
+    }
 
     /**
      * 유예 중이고 잠금 시각으로부터 유예가 이미 지났으면 유예 중 → 세션 없음 전이, 아니면 null.
@@ -271,8 +261,7 @@ object SessionReducer {
         settings: TrackingSettings,
     ): Reduction {
         if (state.phase == Phase.Active) {
-            val alerting = thresholdAlerting(state.openSession(), nowMillis, settings)
-            if (alerting != null) return postThresholdAlert(alerting, nowMillis, settings)
+            thresholdAlert(state.openSession(), nowMillis, settings)?.let { return it }
         }
         return refreshPersistentDisplay(state, nowMillis, settings)
     }
@@ -361,8 +350,11 @@ object SessionReducer {
     /**
      * 다음 알림까지 남은 분. 초과 상태의 본문 "다음 알림 N분 후"가 된다(스펙 4절).
      *
-     * 다음 알림은 직전 알림 시각으로부터 재알림 주기 뒤다. 아직 알린 적이 없으면 셀 기준점이 없어
-     * null이다. 올림해서 "0분 후"가 아니라 남은 분이 그대로 보이게 한다.
+     * 다음 알림은 직전 알림 시각으로부터 재알림 주기 뒤다. 셀 기준점이 없거나(이 세션에서 아직
+     * 알린 적이 없다) 그 시각이 이미 지났으면 null이고, 그때 본문은 초과했다는 사실만 적는다.
+     *
+     * 재알림이 붙으면(#24) 주기가 지나는 순간 알림이 나가면서 기준점이 옮겨지므로, "이미 지났다"는
+     * 쪽은 그 자리를 비운다. 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
      */
     private fun nextAlertMinutes(
         session: Session,
@@ -371,7 +363,8 @@ object SessionReducer {
     ): Int? {
         val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
         val remainingMillis = lastAlertAtMillis + settings.reAlertIntervalMillis - nowMillis
-        return ((remainingMillis + MINUTE_MILLIS - 1) / MINUTE_MILLIS).coerceAtLeast(0).toInt()
+        if (remainingMillis <= 0) return null
+        return ((remainingMillis + MINUTE_MILLIS - 1) / MINUTE_MILLIS).toInt()
     }
 
     private fun graceContent(

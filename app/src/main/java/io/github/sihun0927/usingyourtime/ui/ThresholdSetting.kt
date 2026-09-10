@@ -1,14 +1,8 @@
 package io.github.sihun0927.usingyourtime.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import io.github.sihun0927.usingyourtime.R
 import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 
@@ -42,7 +35,6 @@ private const val THRESHOLD_INPUT_DIGITS = 3
  * 고른 값은 곧바로 DataStore `threshold_min`에 저장되고, 서비스가 다음 판정부터 새 값을 쓴다.
  * 이미 지난 값으로 낮추면 다음 `1분 tick`이 임계값 도달로 처리한다(스펙 3절).
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ThresholdSetting(
     thresholdMinutes: Int,
@@ -52,42 +44,28 @@ internal fun ThresholdSetting(
     var editing by rememberSaveable { mutableStateOf(false) }
     val custom = thresholdMinutes !in THRESHOLD_PRESET_MINUTES
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    MinutesSetting(
+        label = stringResource(R.string.setting_threshold_label),
+        description = stringResource(R.string.setting_threshold_description),
+        presetMinutes = THRESHOLD_PRESET_MINUTES,
+        selectedMinutes = thresholdMinutes,
+        onSelect = onThresholdMinutesChange,
+        modifier = modifier,
     ) {
-        Text(
-            text = stringResource(R.string.setting_threshold_label),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = stringResource(R.string.setting_threshold_description),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            THRESHOLD_PRESET_MINUTES.forEach { minutes ->
-                FilterChip(
-                    selected = minutes == thresholdMinutes,
-                    onClick = { onThresholdMinutesChange(minutes) },
-                    label = { Text(stringResource(R.string.setting_minutes_chip, minutes)) },
+        // 직접 입력한 값은 프리셋 칩 어디에도 자리가 없어 이 칩이 대신 이고 있다.
+        FilterChip(
+            selected = custom,
+            onClick = { editing = true },
+            label = {
+                Text(
+                    if (custom) {
+                        stringResource(R.string.setting_threshold_custom_selected, thresholdMinutes)
+                    } else {
+                        stringResource(R.string.setting_threshold_custom)
+                    },
                 )
-            }
-            // 직접 입력한 값은 칩 어디에도 자리가 없어 이 칩이 대신 이고 있다.
-            FilterChip(
-                selected = custom,
-                onClick = { editing = true },
-                label = {
-                    Text(
-                        if (custom) {
-                            stringResource(R.string.setting_threshold_custom_selected, thresholdMinutes)
-                        } else {
-                            stringResource(R.string.setting_threshold_custom)
-                        },
-                    )
-                },
-            )
-        }
+            },
+        )
     }
 
     if (editing) {
@@ -125,16 +103,7 @@ private fun ThresholdInputDialog(
                 value = text,
                 onValueChange = { text = it.filter(Char::isDigit).take(THRESHOLD_INPUT_DIGITS) },
                 label = { Text(stringResource(R.string.setting_threshold_dialog_field_label)) },
-                supportingText = {
-                    Text(
-                        stringResource(
-                            R.string.setting_threshold_dialog_error,
-                            THRESHOLD_MIN_MINUTES,
-                            THRESHOLD_MAX_MINUTES,
-                            THRESHOLD_STEP_MINUTES,
-                        ),
-                    )
-                },
+                supportingText = { Text(stringResource(R.string.setting_threshold_dialog_error)) },
                 isError = minutes == null,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

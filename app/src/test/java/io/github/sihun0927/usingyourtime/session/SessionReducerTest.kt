@@ -611,6 +611,23 @@ class SessionReducerTest {
         )
     }
 
+    @Test
+    fun `다음 재알림 시각이 지나면 상시 표시에 남은 분을 적지 않는다`() {
+        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(20))
+
+        val reduction = reduce(active, SessionEvent.MinuteTick)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 50, nextAlertMinutes = null),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
     private fun reduce(
         state: SessionState,
         event: SessionEvent,
