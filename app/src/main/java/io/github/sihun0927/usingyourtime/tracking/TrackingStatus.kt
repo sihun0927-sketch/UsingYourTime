@@ -54,8 +54,13 @@ object TrackingStatus {
      */
     val lockScreenAbsent: StateFlow<Boolean> = lockScreenAbsentState.asStateFlow()
 
-    /** [TrackingService]만 부른다. `onCreate`에서 한 번. */
-    internal fun publishRunning() {
+    /**
+     * [TrackingService]만 부른다. `onCreate`에서 한 번. 되돌리는 것은 [clear]다.
+     *
+     * 값을 받지 않는 단방향이다. 서비스가 살아 있다고 말할 수 있는 자리는 자기 `onCreate` 하나뿐이라
+     * 무엇을 세울지 고를 일이 없다.
+     */
+    internal fun markServiceStarted() {
         serviceRunning.value = true
     }
 

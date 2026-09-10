@@ -20,7 +20,6 @@ import io.github.sihun0927.usingyourtime.storage.SettingsStore
 import io.github.sihun0927.usingyourtime.tracking.TrackingService
 import io.github.sihun0927.usingyourtime.tracking.TrackingStatus
 import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** 앱의 유일한 액티비티. 설정 화면 하나만 띄운다(스펙 5절). */
@@ -34,7 +33,6 @@ class MainActivity : ComponentActivity() {
      */
     private var notificationPermission by mutableStateOf(NotificationPermission.Granted)
 
-    /** 화면과 [onStart]가 함께 쓴다. DataStore 인스턴스는 프로세스에 하나뿐이라 만드는 값은 싸다. */
     private val settingsStore by lazy { SettingsStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,12 +117,15 @@ class MainActivity : ComponentActivity() {
      * 물으면 방금 내린 서비스를 되살릴 수 있다. 그 순간 [TrackingStatus.running]은 이미 거짓인데
      * DataStore의 `tracking_on`은 아직 참으로 읽힐 수 있어서다. 화면이 떠 있는 동안 일어나는
      * 측정 중지는 [onStart]를 다시 부르지 않는다.
+     *
+     * `tracking_on`을 보는 것은 [TrackingService.restartIfTrackingOn]이다. 여기서 가리는 것은
+     * "서비스가 이 프로세스에 있나" 하나뿐이다.
      */
     override fun onStart() {
         super.onStart()
         lifecycleScope.launch {
-            if (!TrackingStatus.running.value && settingsStore.trackingOn.first()) {
-                TrackingService.restart(this@MainActivity)
+            if (!TrackingStatus.running.value) {
+                TrackingService.restartIfTrackingOn(this@MainActivity)
             }
         }
     }

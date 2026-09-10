@@ -4,11 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import io.github.sihun0927.usingyourtime.storage.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -18,9 +16,9 @@ import kotlinx.coroutines.launch
  * 동안의 잠금·잠금 해제를 받고, 이쪽은 **서비스가 없는 동안** 오는 두 브로드캐스트를 받는다.
  * 그래서 manifest에 있어야 하고, 앱이 죽어 있어도 시스템이 깨워 준다.
  *
- * 하는 일은 `tracking_on`을 읽고 켜져 있으면 서비스를 띄우는 것뿐이다. 세션을 어떻게 이을지는
- * 서비스의 재동기화가 정한다(스펙 7절 "모든 경로 단일 규칙"). 꺼져 있으면 아무것도 하지 않는다.
- * 설치·업데이트만으로 측정이 시작되지 않는다는 규칙이 여기서 지켜진다(스펙 8절).
+ * 하는 일은 두 액션을 가려내 [TrackingService.restartIfTrackingOn]에 넘기는 것뿐이다.
+ * `tracking_on`을 보는 것도, 세션을 어떻게 이을지 정하는 것도 서비스 쪽이다
+ * (스펙 7절 "모든 경로 단일 규칙").
  *
  * `MY_PACKAGE_REPLACED`는 이 앱이 업데이트됐을 때만 오고 별도 권한이 없다. `BOOT_COMPLETED`는
  * `RECEIVE_BOOT_COMPLETED`가 필요하고 이미 선언돼 있다(스펙 8절 권한 4개). Android 15+에서
@@ -41,19 +39,18 @@ class RestartReceiver : BroadcastReceiver() {
         val applicationContext = context.applicationContext
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                if (SettingsStore(applicationContext).trackingOn.first()) {
-                    Log.i(TAG, "${intent.action}: 측정이 켜져 있어 서비스를 다시 띄운다")
-                    TrackingService.restart(applicationContext)
-                } else {
-                    Log.i(TAG, "${intent.action}: 측정이 꺼져 있어 아무것도 하지 않는다")
-                }
+                val started = TrackingService.restartIfTrackingOn(applicationContext)
+                Log.i(
+                    LOG_TAG,
+                    if (started) {
+                        "${intent.action}: 측정이 켜져 있어 서비스를 다시 띄운다"
+                    } else {
+                        "${intent.action}: 측정이 꺼져 있어 아무것도 하지 않는다"
+                    },
+                )
             } finally {
                 pendingResult.finish()
             }
         }
-    }
-
-    private companion object {
-        const val TAG = "UsingTime"
     }
 }
