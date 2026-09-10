@@ -1,5 +1,6 @@
 package io.github.sihun0927.usingyourtime.tracking
 
+import android.app.KeyguardManager
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -56,6 +57,11 @@ class TrackingService : Service() {
     private val sessionDao by lazy { UsingTimeDatabase.get(this).sessionDao() }
     private val graceExpiryAlarm by lazy { GraceExpiryAlarm(this) }
 
+    /** 화면이 켜지는 순간 잠금 화면이 있는지 묻는 곳(스펙 5절). 권한이 필요 없다. */
+    private val keyguardManager by lazy {
+        requireNotNull(getSystemService(KeyguardManager::class.java))
+    }
+
     /**
      * 효과 실행 줄. 리시버·타이머가 이벤트를 넣기 시작하면서 효과 목록이 겹칠 수 있게 됐다.
      * 한 소비자가 넣은 순서대로 하나씩 끝내야 Room의 "열린 행 최대 1개"가 깨지지 않는다.
@@ -78,13 +84,36 @@ class TrackingService : Service() {
     /**
      * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기. manifest로는 받을 수 없어 서비스가 살아 있는
      * 동안만 런타임 등록한다(스펙 8절).
+     *
+     * `ACTION_SCREEN_ON`만 화면이 켜진 직후의 잠금 상태를 읽어 간다. 그 자리에서 답해야 하는
+     * 질문이 둘이기 때문이다(스펙 5절, ADR 0002).
+     *
+     * **어떤 이벤트로 넣나** — `isKeyguardLocked()`가 정한다. 잠금 화면이 '없음'인 기기에서는
+     * 화면이 켜지는 순간이 곧 잠금 해제라 `ACTION_USER_PRESENT`를 보낼 주체가 없다. 그 기기에서도
+     * 세션이 열리도록 잠겨 있지 않으면 `잠금 해제`로 옮긴다. 세션 규칙에 예외를 두는 것이 아니라
+     * 이벤트를 옮기는 것이고, 리듀서는 이 분기를 모른다. 잠금 화면이 있는 기기는 화면이 켜지는
+     * 순간 아직 잠겨 있어 `화면 켜짐` 그대로 가고, 곧이어 오는 진짜 `ACTION_USER_PRESENT`가
+     * 세션을 연다.
+     *
+     * **잠금 화면이 없는 기기인가** — 안내 줄의 질문이고, `isKeyguardLocked()`만으로는 답이 되지
+     * 않는다. 잠금 지연("화면이 꺼지고 N초 뒤 잠금")이나 Smart Lock으로 잠기지 않은 채 화면이
+     * 켜지는 기기에서도 거짓이라, PIN을 쓰는 사용자에게 "잠금 화면이 없어…"가 상주하게 된다.
+     * 잠금 수단이 있는지는 `isDeviceSecure()`가 답한다. 그 경우에도 이벤트는 `잠금 해제`가 맞다.
+     * 그 순간 기기는 스펙 3절의 정의대로 실제 잠금 해제 상태다.
      */
     private val eventReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val event = when (intent?.action) {
                 Intent.ACTION_USER_PRESENT -> SessionEvent.Unlock
                 Intent.ACTION_SCREEN_OFF -> SessionEvent.Lock
-                Intent.ACTION_SCREEN_ON -> SessionEvent.ScreenOn
+                Intent.ACTION_SCREEN_ON -> {
+                    val unlocked = !keyguardManager.isKeyguardLocked
+                    TrackingStatus.publishLockScreenAbsent(
+                        absent = unlocked && !keyguardManager.isDeviceSecure,
+                    )
+                    if (unlocked) SessionEvent.Unlock else SessionEvent.ScreenOn
+                }
+
                 GraceExpiryAlarm.ACTION -> SessionEvent.GraceExpired
                 else -> return
             }
@@ -126,7 +155,7 @@ class TrackingService : Service() {
      * 경우든 화면이 없는 세션을 계속 보여주지 않도록 창구를 비운다.
      */
     override fun onDestroy() {
-        TrackingStatus.publish(SessionState.Off)
+        TrackingStatus.clear()
         unregisterReceiver(eventReceiver)
         // 서비스를 시스템이 내렸다면 유예 만료 예약이 남아 있다. 받을 리시버가 사라져 아무 일도
         // 일어나지 않지만, 기기를 깨우기만 하는 알람을 남길 이유가 없다.
