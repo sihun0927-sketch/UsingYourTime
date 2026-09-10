@@ -10,11 +10,14 @@ data class Reduction(
  * 세션 상태 머신(스펙 3절 전이표). `android.*`를 import하지 않는 순수 함수라 시간도 저장도 모른다.
  * 지금 시각은 [reduce]의 인자로 받고, 바깥 세상에 할 일은 [SessionEffect] 값으로 돌려준다.
  *
- * 전이표에 없는 (상태, 이벤트) 짝은 상태를 그대로 두고 효과도 내지 않는다.
+ * 전이표에 없는 (상태, 이벤트) 짝은 상태를 그대로 두고 효과도 내지 않는다. 예외가 둘 있다.
  *
- * 예외는 `서비스 재시작` 하나다([serviceRestart]). 프로세스가 죽었다 살아난 자리라 들고 있던
- * 상태가 이미 사라졌고, 그래서 들어온 상태 대신 이벤트가 실어 온 저장된 세계로 상태를 다시
- * 세운다(스펙 7절 재동기화).
+ * 1. `서비스 재시작`([serviceRestart]). 프로세스가 죽었다 살아난 자리라 들고 있던 상태가 이미
+ *    사라졌고, 그래서 들어온 상태 대신 이벤트가 실어 온 저장된 세계로 상태를 다시 세운다
+ *    (스펙 7절 재동기화).
+ * 2. 세션 없음 · `1분 tick`([refreshPersistentDisplay]). 상태는 그대로지만 상시 표시를 다시
+ *    게시한다. Android 14+에서 스와이프로 지워진 대기 문구가 돌아오는 길이 그 갱신뿐이기
+ *    때문이다(스펙 4절, `docs/adr/0005-minute-tick-reposts-the-idle-persistent-display.md`).
  *
  * 유예 만료를 정하는 것은 타이머가 아니라 **잠금 시각과 지금 시각의 차이**다. 유예 중에 들어오는
  * 모든 이벤트가 그 차이를 다시 재므로, 알람이 Doze로 늦게 오거나 유예 설정이 바뀌어 이르게 와도
@@ -694,23 +697,25 @@ object SessionReducer {
     /**
      * `1분 tick`. 열린 세션이 있으면 상시 표시를 다시 그린다. 유예 중이면 남은 유예까지.
      *
-     * 세션 없음의 상시 표시는 문구가 고정이라 다시 그릴 것이 없다. 스와이프로 지워진 상시 표시를
-     * 다시 게시하는 일은 티켓 #29가 맡는다.
+     * 세션 없음의 문구는 고정이라 바뀔 것이 없는데도 같은 내용을 다시 낸다. Android 14+에서
+     * 사용자가 스와이프로 지운 상시 표시가 다시 올라오는 길이 이 갱신뿐이기 때문이다
+     * (스펙 4절 "다음 갱신(`1분 tick`)에 다시 게시한다",
+     * `docs/adr/0005-minute-tick-reposts-the-idle-persistent-display.md`).
+     *
+     * 측정 꺼짐에는 낼 것이 없다. 게시할 상시 표시가 애초에 없고, 서비스도 없거나 내려가는 중이다.
      */
     private fun refreshPersistentDisplay(
         state: SessionState,
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val session = state.session ?: return Reduction(state)
-        return Reduction(
-            state,
-            listOf(
-                SessionEffect.UpdatePersistentDisplay(
-                    openContent(state.phase, session, nowMillis, settings),
-                ),
-            ),
-        )
+        if (state.phase == Phase.Off) return Reduction(state)
+
+        // 열린 세션이 없는 국면은 측정 꺼짐 아니면 세션 없음뿐이다([SessionState]의 불변식).
+        val content = state.session
+            ?.let { openContent(state.phase, it, nowMillis, settings) }
+            ?: PersistentDisplayContent.Idle
+        return Reduction(state, listOf(SessionEffect.UpdatePersistentDisplay(content)))
     }
 
     /**

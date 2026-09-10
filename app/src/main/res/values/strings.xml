@@ -59,6 +59,11 @@
     <string name="setting_threshold_alert_label">임계값 알림</string>
     <string name="setting_threshold_alert_description">임계값에 닿으면 소리·진동으로 알려드려요. 끄면 상태바의 상시 표시만 남아요.</string>
 
+    <!-- 도움말 (스펙 5절 3번) -->
+    <string name="help_label">측정이 자주 멈추면</string>
+    <string name="help_description">배터리 최적화가 앱을 재우면 측정이 끊길 수 있어요. 앱 정보의 배터리에서 이 앱을 \'제한 없음\'으로 두면 계속 측정해요.</string>
+    <string name="help_action_app_info">앱 정보 열기</string>
+
     <!-- 개인정보처리방침 행 (스펙 5절) -->
     <string name="privacy_policy">개인정보처리방침</string>
     <string name="privacy_policy_url" translatable="false">https://sihun0927-sketch.github.io/UsingYourTime/privacy-policy</string>
