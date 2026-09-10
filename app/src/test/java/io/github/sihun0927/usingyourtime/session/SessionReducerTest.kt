@@ -9,7 +9,7 @@ private const val MINUTE_MILLIS = 60_000L
 /**
  * 스펙 3절 전이표를 한 줄씩 값 비교로 검증한다.
  *
- * 재알림·세션 알림 끄기 줄은 이후 티켓(#24·#25)에서 이 파일에 들어온다.
+ * 재알림 줄은 이후 티켓(#24)에서 이 파일에 들어온다.
  */
 class SessionReducerTest {
 
