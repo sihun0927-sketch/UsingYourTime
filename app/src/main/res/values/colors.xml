@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1B4B7A</color>
+
+    <!--
+      알림 색(스펙 4절). setColor()가 작은 아이콘·앱 이름·막대를 함께 물들인다.
+      런처 아이콘의 두 색을 그대로 쓴다: 평상시는 브랜드 파랑, 임계값 초과는 시계 바늘의 앰버.
+      시스템이 알림 배경에 맞춰 대비를 보정하므로 밝기는 한 벌만 둔다.
+    -->
+    <color name="notification_accent">#1B4B7A</color>
+    <color name="notification_warning">#F5B547</color>
 </resources>

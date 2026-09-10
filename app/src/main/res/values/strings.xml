@@ -8,8 +8,17 @@
     <string name="persistent_display_title_active">연속 사용 중</string>
     <string name="persistent_display_body_active">임계값 %1$d분까지 %2$d분 남음</string>
     <string name="persistent_display_body_grace">잠금 중 · 유예 %1$s 남음</string>
+    <string name="persistent_display_title_exceeded">연속 사용 중 · 임계값 %1$d분 초과</string>
+    <string name="persistent_display_body_next_alert">다음 알림 %1$d분 후</string>
+    <string name="persistent_display_body_exceeded">임계값 %1$d분 초과</string>
     <string name="persistent_display_title_idle">측정 대기 중</string>
     <string name="persistent_display_body_idle">잠금 해제하면 세션이 시작돼요</string>
+
+    <!-- 임계값 알림 (스펙 4절) -->
+    <string name="notification_channel_threshold_name">임계값 알림</string>
+    <string name="notification_channel_threshold_description">연속 사용 시간이 임계값에 닿으면 소리·진동으로 알려요</string>
+    <string name="threshold_alert_title">%1$d분째 연속 사용 중</string>
+    <string name="threshold_alert_body_first">잠깐 눈을 쉬어 주세요. 계속 쓰면 %1$d분 뒤 다시 알려요.</string>
 
     <!-- 상태 카드 (스펙 5절) -->
     <string name="status_card_tracking_label">측정 상태</string>
@@ -25,6 +34,15 @@
     <string name="action_pause">측정 중지</string>
 
     <!-- 설정 (스펙 5절 2번, 6절) -->
+    <string name="setting_threshold_label">임계값</string>
+    <string name="setting_threshold_description">연속 사용 시간이 이 값에 닿으면 알려드려요. 10분에서 4시간까지 5분 단위로 정할 수 있어요.</string>
+    <string name="setting_threshold_custom">직접 입력</string>
+    <string name="setting_threshold_custom_selected">직접 입력 · %1$d분</string>
+    <string name="setting_threshold_dialog_title">임계값 직접 입력</string>
+    <string name="setting_threshold_dialog_field_label">분</string>
+    <string name="setting_threshold_dialog_error">%1$d분에서 %2$d분 사이, %3$d분 단위로 입력해 주세요</string>
+    <string name="action_confirm">확인</string>
+    <string name="action_cancel">취소</string>
     <string name="setting_grace_period_label">유예 시간</string>
     <string name="setting_grace_period_description">잠근 뒤 이 시간 안에 다시 열면 같은 세션이 이어져요. 0분이면 잠그는 즉시 끝나요.</string>
     <string name="setting_minutes_chip">%1$d분</string>

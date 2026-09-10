@@ -8,14 +8,17 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import io.github.sihun0927.usingyourtime.notification.PersistentDisplay
+import io.github.sihun0927.usingyourtime.notification.ThresholdAlert
 import io.github.sihun0927.usingyourtime.session.PersistentDisplayContent
 import io.github.sihun0927.usingyourtime.session.SessionEffect
 import io.github.sihun0927.usingyourtime.session.SessionEvent
 import io.github.sihun0927.usingyourtime.session.SessionReducer
 import io.github.sihun0927.usingyourtime.session.SessionState
+import io.github.sihun0927.usingyourtime.session.ThresholdAlertContent
 import io.github.sihun0927.usingyourtime.session.TrackingSettings
 import io.github.sihun0927.usingyourtime.storage.SettingsStore
 import io.github.sihun0927.usingyourtime.storage.UsingTimeDatabase
@@ -52,6 +55,7 @@ class TrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val persistentDisplay by lazy { PersistentDisplay(this) }
+    private val thresholdAlert by lazy { ThresholdAlert(this) }
     private val settingsStore by lazy { SettingsStore(this) }
     private val sessionDao by lazy { UsingTimeDatabase.get(this).sessionDao() }
     private val graceExpiryAlarm by lazy { GraceExpiryAlarm(this) }
@@ -67,13 +71,21 @@ class TrackingService : Service() {
     /**
      * 마지막으로 읽은 설정. DataStore가 첫 값을 흘려보내기 전에는 스펙 6절의 기본값이다.
      *
-     * 서비스를 띄우는 `측정 시작`은 그 첫 값보다 먼저 올 수 있지만, 그 전이가 보는 설정은 아직
-     * 사용자가 고칠 수 없는 임계값뿐이다(#23). 유예 시간을 보는 `잠금`부터는 사용자의 손이 한 번
-     * 더 필요해 그때는 이미 읽혀 있다.
+     * 서비스를 띄우는 `측정 시작`은 그 첫 값보다 먼저 올 수 있다. 그 전이가 보는 설정은 임계값
+     * 하나뿐이고, 그마저도 어긋나면 첫 `1분 tick`이 새 값으로 다시 판정한다.
      */
     private var settings = TrackingSettings()
 
     private var graceExpiryTimer: Job? = null
+
+    /**
+     * 임계값 도달로 깨우는 타이머. 세션을 열 때마다 새로 걸어 앞의 것을 덮는다.
+     *
+     * 유예 만료와 달리 알람을 함께 걸지 않는다. 임계값 알림은 잠금 해제 상태에서만 나가고, 그때는
+     * 화면이 켜져 있어 프로세스가 잠들지 않는다. 화면이 꺼진 사이 임계값을 넘겼다면 다음 잠금
+     * 해제 직후에 판정한다(#26).
+     */
+    private var thresholdAlertTimer: Job? = null
 
     /**
      * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기. manifest로는 받을 수 없어 서비스가 살아 있는
@@ -95,6 +107,7 @@ class TrackingService : Service() {
     override fun onCreate() {
         super.onCreate()
         persistentDisplay.ensureChannel()
+        thresholdAlert.ensureChannel()
         serviceScope.launch {
             for (effect in effects) execute(effect)
         }
@@ -165,8 +178,12 @@ class TrackingService : Service() {
             is SessionEffect.OpenSession -> sessionDao.open(effect.startedAtMillis)
             is SessionEffect.SaveLockedAt -> sessionDao.saveLockedAt(effect.lockedAtMillis)
             is SessionEffect.CloseSession -> sessionDao.close(effect.endedAtMillis, effect.reason)
+            is SessionEffect.SaveAlertState -> sessionDao.saveAlerts(effect.alerts)
             is SessionEffect.ScheduleGraceExpiry -> scheduleGraceExpiry(effect.atMillis)
             SessionEffect.CancelGraceExpiry -> cancelGraceExpiry()
+            is SessionEffect.PostThresholdAlert -> postThresholdAlert(effect.content)
+            SessionEffect.DismissThresholdAlert -> dismissThresholdAlert()
+            is SessionEffect.ScheduleThresholdAlert -> scheduleThresholdAlert(effect.atMillis)
             SessionEffect.StopService -> stopService()
         }
     }
@@ -179,6 +196,35 @@ class TrackingService : Service() {
             persistentDisplay.build(content),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
+    }
+
+    /**
+     * 임계값 알림 게시. 상시 표시와 달리 포그라운드 서비스의 알림이 아니라 따로 띄운다.
+     *
+     * 권한이 없으면 시스템이 조용히 버린다. 측정은 알림 권한을 받은 뒤에만 시작되지만(스펙 5절),
+     * 그 뒤 사용자가 설정에서 권한을 거둘 수 있다.
+     */
+    private fun postThresholdAlert(content: ThresholdAlertContent) {
+        NotificationManagerCompat.from(this)
+            .notify(ThresholdAlert.NOTIFICATION_ID, thresholdAlert.build(content))
+    }
+
+    private fun dismissThresholdAlert() {
+        NotificationManagerCompat.from(this).cancel(ThresholdAlert.NOTIFICATION_ID)
+    }
+
+    /**
+     * 임계값 도달로 깨우기. 세션을 열 때 그 세션의 임계값 시각으로 한 번 건다.
+     *
+     * 세션이 사는 동안 임계값을 바꾸면 이 예약이 어긋나지만, 리듀서가 연속 사용 시간으로 다시
+     * 판정하고 어긋난 만큼은 `1분 tick`이 메운다(스펙 3절 설정 변경 중 동작).
+     */
+    private fun scheduleThresholdAlert(atMillis: Long) {
+        thresholdAlertTimer?.cancel()
+        thresholdAlertTimer = serviceScope.launch {
+            delay(atMillis - System.currentTimeMillis())
+            dispatch(SessionEvent.ThresholdReached)
+        }
     }
 
     private fun registerEventReceiver() {

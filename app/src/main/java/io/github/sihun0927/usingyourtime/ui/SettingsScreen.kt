@@ -25,8 +25,8 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 /**
  * 설정 화면(스펙 5절). 앱의 유일한 화면이다. Scaffold가 edge-to-edge 인셋을 처리한다.
  *
- * 위에서부터 상태 카드, 설정, 개인정보처리방침 행이다. 나머지 설정(임계값·재알림 주기·임계값 알림
- * 토글)과 도움말 섹션은 각 티켓에서 채운다.
+ * 위에서부터 상태 카드, 설정, 개인정보처리방침 행이다. 나머지 설정(재알림 주기·임계값 알림 토글)과
+ * 도움말 섹션은 각 티켓에서 채운다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,9 +34,11 @@ fun SettingsScreen(
     trackingOn: Boolean,
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
+    thresholdMinutes: Int,
     graceMinutes: Int,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
+    onThresholdMinutesChange: (Int) -> Unit,
     onGraceMinutesChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -57,6 +59,11 @@ fun SettingsScreen(
                 onStartTracking = onStartTracking,
                 onPause = onPause,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            )
+            ThresholdSetting(
+                thresholdMinutes = thresholdMinutes,
+                onThresholdMinutesChange = onThresholdMinutesChange,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
             GracePeriodSetting(
                 graceMinutes = graceMinutes,
@@ -85,9 +92,11 @@ private fun SettingsScreenOffPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
+            thresholdMinutes = 30,
             graceMinutes = 3,
             onStartTracking = {},
             onPause = {},
+            onThresholdMinutesChange = {},
             onGraceMinutesChange = {},
         )
     }
@@ -101,9 +110,11 @@ private fun SettingsScreenOnPreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * 1_000L,
             notificationPermission = NotificationPermission.Granted,
+            thresholdMinutes = 30,
             graceMinutes = 3,
             onStartTracking = {},
             onPause = {},
+            onThresholdMinutesChange = {},
             onGraceMinutesChange = {},
         )
     }

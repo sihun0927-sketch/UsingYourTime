@@ -9,7 +9,7 @@ private const val MINUTE_MILLIS = 60_000L
 /**
  * 스펙 3절 전이표를 한 줄씩 값 비교로 검증한다.
  *
- * 임계값·재알림·세션 알림 끄기 줄은 이후 티켓(#23~#26)에서 이 파일에 들어온다.
+ * 재알림·세션 알림 끄기 줄은 이후 티켓(#24·#25)에서 이 파일에 들어온다.
  */
 class SessionReducerTest {
 
@@ -34,6 +34,7 @@ class SessionReducerTest {
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
+                SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
                 SessionEffect.SaveTrackingOn(trackingOn = true),
             ),
             reduction.effects,
@@ -297,6 +298,7 @@ class SessionReducerTest {
                 SessionEffect.CloseSession(lockedAtMillis, SessionEndReason.GRACE_EXPIRED),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.CancelGraceExpiry,
+                SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
             ),
             reduction.effects,
         )
@@ -401,6 +403,7 @@ class SessionReducerTest {
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
+                SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
             ),
             reduction.effects,
         )
@@ -412,27 +415,245 @@ class SessionReducerTest {
         assertEquals(Reduction(SessionState.Idle), reduce(SessionState.Idle, SessionEvent.Lock))
     }
 
+    @Test
+    fun `세션 진행 중 임계값에 닿으면 임계값 알림을 보내고 알림 상태를 적는다`() {
+        val startedAtMillis = nowMillis - 30 * MINUTE_MILLIS
+        val alerts = AlertState(
+            thresholdAlertedAtMillis = nowMillis,
+            lastAlertAtMillis = nowMillis,
+            count = 1,
+        )
+
+        val reduction = reduce(activeSince(startedAtMillis), SessionEvent.ThresholdReached)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts)),
+            reduction.state,
+        )
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 30, nextAlertMinutes = 15),
+                ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 30, reAlertMinutes = 15),
+                ),
+                SessionEffect.SaveAlertState(alerts),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `세션을 열면 임계값 시각에 깨우도록 예약한다`() {
+        val reduction = reduce(SessionState.Idle, SessionEvent.Unlock)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
+                SessionEffect.OpenSession(startedAtMillis = nowMillis),
+                SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `임계값을 이미 지난 값으로 낮추면 다음 1분 tick이 임계값 도달로 처리한다`() {
+        val startedAtMillis = nowMillis - 40 * MINUTE_MILLIS
+        val lowered = TrackingSettings(thresholdMinutes = 15)
+
+        val reduction = reduce(activeSince(startedAtMillis), SessionEvent.MinuteTick, lowered)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(
+                        startedAtMillis,
+                        elapsedMinutes = 40,
+                        nextAlertMinutes = 15,
+                        thresholdMinutes = 15,
+                    ),
+                ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 40, reAlertMinutes = 15),
+                ),
+                SessionEffect.SaveAlertState(
+                    AlertState(
+                        thresholdAlertedAtMillis = nowMillis,
+                        lastAlertAtMillis = nowMillis,
+                        count = 1,
+                    ),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `알림을 보낸 세션이 유예 만료로 닫히면 임계값 알림을 걷는다`() {
+        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
+        val lockedAtMillis = nowMillis - 10 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, lockedAtMillis, alertedMinutesAgo(20))
+
+        val reduction = reduce(grace, SessionEvent.GraceExpired)
+
+        assertEquals(SessionState.Idle, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
+                SessionEffect.CloseSession(lockedAtMillis, SessionEndReason.GRACE_EXPIRED),
+                SessionEffect.DismissThresholdAlert,
+                SessionEffect.CancelGraceExpiry,
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `알림을 보낸 세션에서 측정 중지를 누르면 임계값 알림도 걷는다`() {
+        val active = activeSince(nowMillis - 50 * MINUTE_MILLIS, alertedMinutesAgo(20))
+
+        val reduction = reduce(active, SessionEvent.Pause)
+
+        assertEquals(
+            listOf(
+                SessionEffect.CloseSession(nowMillis, SessionEndReason.PAUSED),
+                SessionEffect.DismissThresholdAlert,
+                SessionEffect.SaveTrackingOn(trackingOn = false),
+                SessionEffect.StopService,
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `이미 알린 세션에는 임계값 도달이 다시 와도 보내지 않는다`() {
+        val active = activeSince(nowMillis - 50 * MINUTE_MILLIS, alertedMinutesAgo(20))
+
+        val reduction = reduce(active, SessionEvent.ThresholdReached)
+
+        assertEquals(active, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `임계값에 닿기 전에 깨우기가 오면 아무 일도 하지 않는다`() {
+        val active = activeSince(nowMillis - 10 * MINUTE_MILLIS)
+
+        val reduction = reduce(active, SessionEvent.ThresholdReached)
+
+        assertEquals(active, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `유예 중에 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
+        val grace = graceSince(nowMillis - 40 * MINUTE_MILLIS, nowMillis - MINUTE_MILLIS)
+
+        val reduction = reduce(grace, SessionEvent.ThresholdReached)
+
+        assertEquals(grace, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `유예 중 1분 tick은 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
+        val startedAtMillis = nowMillis - 40 * MINUTE_MILLIS
+        val lockedAtMillis = nowMillis - MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, lockedAtMillis)
+
+        val reduction = reduce(grace, SessionEvent.MinuteTick)
+
+        assertEquals(grace, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    graceContent(
+                        startedAtMillis,
+                        elapsedMinutes = 40,
+                        graceRemainingMillis = 2 * MINUTE_MILLIS,
+                    ),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `초과 상태의 상시 표시는 다음 알림까지 남은 분을 함께 그린다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(4))
+
+        val reduction = reduce(active, SessionEvent.MinuteTick)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = 11),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `유예 안에 잠금 해제되어 세션이 이어지면 알림 상태가 그대로 남는다`() {
+        val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
+        val alerts = alertedMinutesAgo(20)
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS, alerts)
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts)),
+            reduction.state,
+        )
+    }
+
     private fun reduce(
         state: SessionState,
         event: SessionEvent,
         settings: TrackingSettings = this.settings,
     ): Reduction = SessionReducer.reduce(state, event, nowMillis, settings)
 
-    private fun activeSince(startedAtMillis: Long): SessionState =
-        SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis))
+    private fun activeSince(
+        startedAtMillis: Long,
+        alerts: AlertState = AlertState.None,
+    ): SessionState =
+        SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts))
 
-    private fun graceSince(startedAtMillis: Long, lockedAtMillis: Long): SessionState =
-        SessionState(
-            Phase.Grace,
-            Session(startedAtMillis = startedAtMillis, lockedAtMillis = lockedAtMillis),
-        )
+    private fun graceSince(
+        startedAtMillis: Long,
+        lockedAtMillis: Long,
+        alerts: AlertState = AlertState.None,
+    ): SessionState = SessionState(
+        Phase.Grace,
+        Session(
+            startedAtMillis = startedAtMillis,
+            lockedAtMillis = lockedAtMillis,
+            alerts = alerts,
+        ),
+    )
 
-    private fun activeContent(startedAtMillis: Long, elapsedMinutes: Int): PersistentDisplayContent =
-        PersistentDisplayContent.Active(
-            sessionStartedAtMillis = startedAtMillis,
-            elapsedMinutes = elapsedMinutes,
-            thresholdMinutes = settings.thresholdMinutes,
-        )
+    /** [minutesAgo]분 전에 임계값 알림을 1회 보낸 세션의 알림 상태. */
+    private fun alertedMinutesAgo(minutesAgo: Int): AlertState = AlertState(
+        thresholdAlertedAtMillis = nowMillis - minutesAgo * MINUTE_MILLIS,
+        lastAlertAtMillis = nowMillis - minutesAgo * MINUTE_MILLIS,
+        count = 1,
+    )
+
+    private fun activeContent(
+        startedAtMillis: Long,
+        elapsedMinutes: Int,
+        nextAlertMinutes: Int? = null,
+        thresholdMinutes: Int = settings.thresholdMinutes,
+    ): PersistentDisplayContent = PersistentDisplayContent.Active(
+        sessionStartedAtMillis = startedAtMillis,
+        elapsedMinutes = elapsedMinutes,
+        thresholdMinutes = thresholdMinutes,
+        nextAlertMinutes = nextAlertMinutes,
+    )
 
     private fun graceContent(
         startedAtMillis: Long,

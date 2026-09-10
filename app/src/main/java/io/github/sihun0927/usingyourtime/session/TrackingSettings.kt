@@ -17,4 +17,10 @@ data class TrackingSettings(
 ) {
     /** 유예 시간(`gracePeriod`)을 밀리초로. 0이면 잠그는 즉시 세션이 끝난다. */
     val gracePeriodMillis: Long get() = graceMinutes * MINUTE_MILLIS
+
+    /** 임계값(`threshold`)을 밀리초로. 연속 사용 시간이 이만큼 되면 임계값 알림이 나간다. */
+    val thresholdMillis: Long get() = thresholdMinutes * MINUTE_MILLIS
+
+    /** 재알림 주기(`reAlertInterval`)를 밀리초로. 직전 알림 시각부터 잰다(스펙 4절). */
+    val reAlertIntervalMillis: Long get() = reAlertMinutes * MINUTE_MILLIS
 }
