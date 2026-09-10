@@ -33,10 +33,13 @@ object SessionReducer {
         SessionEvent.GraceExpired -> closeExpiredGrace(state, nowMillis, settings)
             ?: rescheduleGraceExpiry(state, nowMillis, settings)
 
-        SessionEvent.ThresholdReached -> thresholdReached(state, nowMillis, settings)
+        SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings) ?: Reduction(state)
 
+        // 임계값을 이미 지난 값으로 낮췄으면 이 tick이 곧 `임계값 도달`이다(스펙 3절 설정 변경 중
+        // 동작). 걸어 둔 깨우기는 이미 지나가 버렸기 때문이다.
         SessionEvent.MinuteTick -> closeExpiredGrace(state, nowMillis, settings)
-            ?: minuteTick(state, nowMillis, settings)
+            ?: thresholdAlert(state, nowMillis, settings)
+            ?: refreshPersistentDisplay(state, nowMillis, settings)
     }
 
     /** 측정 꺼짐 → 세션 진행. 버튼을 누른 시점은 잠금 해제 상태이므로 **지금** 세션을 연다. */
@@ -147,36 +150,26 @@ object SessionReducer {
     }
 
     /**
-     * `임계값 도달`. 걸어 둔 깨우기가 늦게 왔든 이르게 왔든 연속 사용 시간으로 다시 판정한다.
+     * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
      *
-     * 세션 진행 상태에서만 알린다. 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절)
-     * 유예 중에 이 이벤트가 오면 아무 일도 하지 않는다. 그때 밀린 알림을 다음 잠금 해제 직후
-     * 1회만 보내는 일은 #26이 맡는다.
-     */
-    private fun thresholdReached(
-        state: SessionState,
-        nowMillis: Long,
-        settings: TrackingSettings,
-    ): Reduction {
-        if (state.phase != Phase.Active) return Reduction(state)
-        return thresholdAlert(state.openSession(), nowMillis, settings) ?: Reduction(state)
-    }
-
-    /**
-     * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null. 부르는 쪽이 세션 진행 상태인지를
-     * 먼저 가른다.
+     * 발송 조건은 스펙 4절이다. 세션 진행 상태이고, 연속 사용 시간이 임계값에 닿았고, 이 세션에서
+     * 아직 알린 적이 없어야 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이
+     * 조건에 더해진다.
      *
-     * 발송 조건은 스펙 4절이다. 연속 사용 시간이 임계값에 닿았고, 이 세션에서 아직 알린 적이 없어야
-     * 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이 조건에 더해진다.
+     * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
+     * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
+     * 왔든 판정은 연속 사용 시간이 하므로 결과가 같다.
      *
      * 상시 표시가 같은 자리에서 초과 상태로 바뀐다. 제목의 "초과"·가득 찬 막대·경고색이 알림과 함께
      * 움직여야 하기 때문이다(스펙 4절 경고색 규칙).
      */
     private fun thresholdAlert(
-        session: Session,
+        state: SessionState,
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction? {
+        if (state.phase != Phase.Active) return null
+        val session = state.openSession()
         if (session.alerts.alerted) return null
         if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
 
@@ -251,24 +244,7 @@ object SessionReducer {
     }
 
     /**
-     * `1분 tick`. 임계값 판정을 먼저 하고, 알릴 것이 없으면 상시 표시만 다시 그린다.
-     *
-     * 임계값을 이미 지난 값으로 낮추면 걸어 둔 깨우기는 이미 지나갔다. 그 어긋남을 이 tick이
-     * 메운다(스펙 3절 설정 변경 중 동작). 이 판정이 곧 `임계값 도달`이라 알림 효과도 같다.
-     */
-    private fun minuteTick(
-        state: SessionState,
-        nowMillis: Long,
-        settings: TrackingSettings,
-    ): Reduction {
-        if (state.phase == Phase.Active) {
-            thresholdAlert(state.openSession(), nowMillis, settings)?.let { return it }
-        }
-        return refreshPersistentDisplay(state, nowMillis, settings)
-    }
-
-    /**
-     * 열린 세션이 있으면 상시 표시를 다시 그린다. 유예 중이면 남은 유예까지.
+     * `1분 tick`. 열린 세션이 있으면 상시 표시를 다시 그린다. 유예 중이면 남은 유예까지.
      *
      * 세션 없음의 상시 표시는 문구가 고정이라 다시 그릴 것이 없다. 스와이프로 지워진 상시 표시를
      * 다시 게시하는 일은 티켓 #29가 맡는다.

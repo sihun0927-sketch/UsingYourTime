@@ -21,7 +21,12 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 /** 임계값 프리셋(스펙 6절). 이 표에 없는 값은 직접 입력으로 넣는다. */
 private val THRESHOLD_PRESET_MINUTES = listOf(15, 30, 45, 60, 90, 120)
 
-/** 직접 입력이 받는 범위와 단위(스펙 6절). 10분 ~ 4시간, 5분 단위. */
+/**
+ * 직접 입력이 받는 범위와 단위(스펙 6절). 10분 ~ 4시간, 5분 단위.
+ *
+ * 사용자에게 보이는 같은 내용이 `setting_threshold_dialog_hint`에 문장으로 있다. 여기를 고치면
+ * 그 문자열도 같이 고친다.
+ */
 private const val THRESHOLD_MIN_MINUTES = 10
 private const val THRESHOLD_MAX_MINUTES = 240
 private const val THRESHOLD_STEP_MINUTES = 5
@@ -103,7 +108,7 @@ private fun ThresholdInputDialog(
                 value = text,
                 onValueChange = { text = it.filter(Char::isDigit).take(THRESHOLD_INPUT_DIGITS) },
                 label = { Text(stringResource(R.string.setting_threshold_dialog_field_label)) },
-                supportingText = { Text(stringResource(R.string.setting_threshold_dialog_error)) },
+                supportingText = { Text(stringResource(R.string.setting_threshold_dialog_hint)) },
                 isError = minutes == null,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

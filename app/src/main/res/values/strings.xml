@@ -41,7 +41,8 @@
     <string name="setting_threshold_custom_selected">직접 입력 · %1$d분</string>
     <string name="setting_threshold_dialog_title">임계값 직접 입력</string>
     <string name="setting_threshold_dialog_field_label">분</string>
-    <string name="setting_threshold_dialog_error">10분에서 4시간 사이, 5분 단위로 입력해 주세요</string>
+    <!-- 범위·단위는 ThresholdSetting.kt의 THRESHOLD_* 상수와 같이 고친다 -->
+    <string name="setting_threshold_dialog_hint">10분에서 4시간 사이, 5분 단위로 입력해 주세요</string>
     <string name="action_confirm">확인</string>
     <string name="action_cancel">취소</string>
     <string name="setting_grace_period_label">유예 시간</string>
