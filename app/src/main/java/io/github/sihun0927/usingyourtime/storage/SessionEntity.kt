@@ -4,7 +4,9 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import io.github.sihun0927.usingyourtime.session.AlertState
 import io.github.sihun0927.usingyourtime.session.SessionEndReason
+import io.github.sihun0927.usingyourtime.session.StoredSession
 
 /**
  * Room `sessions` 한 행(스펙 8절). 시각은 모두 epoch 밀리초다.
@@ -20,7 +22,7 @@ data class SessionEntity(
     @ColumnInfo(name = "started_at")
     val startedAtMillis: Long,
 
-    /** heartbeat. 세션 진행 중 1분마다 덮어쓰는 일은 복구 티켓 #27이 붙인다(스펙 7절). */
+    /** 마지막 생존 시각. 세션 진행 중 `1분 tick`마다 덮어쓴다(스펙 7절). */
     @ColumnInfo(name = "last_alive_at")
     val lastAliveAtMillis: Long,
 
@@ -47,7 +49,23 @@ data class SessionEntity(
     /** 세션 알림 끄기. 세션에 속한 값이라 새 행은 늘 거짓에서 시작한다(스펙 3절). */
     @ColumnInfo(name = "muted")
     val muted: Boolean = false,
-)
+) {
+    /**
+     * 재동기화가 판정할 값으로 옮긴다(스펙 7절). 리듀서는 Room을 모르므로 `id`와 종료 열은 두고
+     * 간다. 열린 행에서만 부르므로 종료 열은 어차피 비어 있다.
+     */
+    fun toStoredSession(): StoredSession = StoredSession(
+        startedAtMillis = startedAtMillis,
+        lastAliveAtMillis = lastAliveAtMillis,
+        lockedAtMillis = lockedAtMillis,
+        alerts = AlertState(
+            thresholdAlertedAtMillis = thresholdAlertedAtMillis,
+            lastAlertAtMillis = lastAlertAtMillis,
+            count = alertCount,
+        ),
+        muted = muted,
+    )
+}
 
 /** 종료 원인은 이름 그대로 저장한다. 값이 늘어도 기존 행을 읽는 데 문제가 없다. */
 class SessionEndReasonConverter {

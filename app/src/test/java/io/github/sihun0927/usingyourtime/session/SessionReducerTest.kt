@@ -43,6 +43,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
                 SessionEffect.SaveTrackingOn(trackingOn = true),
             ),
             reduction.effects,
@@ -121,6 +122,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 12),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -237,10 +239,26 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 20),
                 ),
+                SessionEffect.ScheduleThresholdAlert(atMillis = startedAtMillis + 30 * MINUTE_MILLIS),
                 SessionEffect.SaveLockedAt(lockedAtMillis = null),
                 SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
+        )
+    }
+
+    @Test
+    fun `유예 안에 잠금 해제되면 임계값 깨우기를 다시 건다`() {
+        // 잠긴 동안 임계값 깨우기가 왔다 가며 소모됐을 수 있다. 그때는 잠금 중이라 알림이 나가지
+        // 않았고, 다시 걸리지도 않았다. 여기서 걸지 않으면 `1분 tick`이 메울 때까지 밀린다.
+        val startedAtMillis = nowMillis - 20 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, nowMillis - 2 * MINUTE_MILLIS)
+
+        val reduction = reduce(grace, SessionEvent.Unlock)
+
+        assertEquals(
+            listOf(SessionEffect.ScheduleThresholdAlert(atMillis = startedAtMillis + 30 * MINUTE_MILLIS)),
+            reduction.effects.filterIsInstance<SessionEffect.ScheduleThresholdAlert>(),
         )
     }
 
@@ -307,6 +325,7 @@ class SessionReducerTest {
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.CancelGraceExpiry,
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -412,6 +431,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -462,6 +482,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveRestartNotice(atMillis = null),
             ),
             reduction.effects,
         )
@@ -495,6 +516,7 @@ class SessionReducerTest {
                     ),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -602,6 +624,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = 11),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -905,6 +928,7 @@ class SessionReducerTest {
                     ),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 5 * MINUTE_MILLIS),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -989,6 +1013,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, muted = true),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -1045,6 +1070,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = null),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
@@ -1175,6 +1201,7 @@ class SessionReducerTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 45, muted = true),
                 ),
+                SessionEffect.SaveLastAliveAt(lastAliveAtMillis = nowMillis),
             ),
             reduction.effects,
         )
