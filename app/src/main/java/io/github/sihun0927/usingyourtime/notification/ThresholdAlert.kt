@@ -19,7 +19,11 @@ import io.github.sihun0927.usingyourtime.session.ThresholdAlertContent
  * 끄기·측정 중지 셋으로 못박았고, 사용자가 손으로 지우는 것은 다음 재알림까지 알림을 보지 않겠다는
  * 뜻이 따로 있다. 탭으로 지워지면 그 셋도 이것도 아닌 네 번째 길이 된다.
  *
- * 액션 버튼 "이번 세션 알림 끄기"와 재알림 본문·부제 회차는 이후 티켓(#24·#25)에서 들어온다.
+ * 첫 알림과 재알림이 같은 [NOTIFICATION_ID]로 나가 알림 창에 하나만 남는다(스펙 4절).
+ * `setOnlyAlertOnce`를 쓰지 않는 것이 그래서다. 같은 id로 다시 게시해도 heads-up과 채널 기본
+ * 소리·진동이 매번 나야 한다.
+ *
+ * 액션 버튼 "이번 세션 알림 끄기"는 이후 티켓(#25)에서 들어온다.
  */
 class ThresholdAlert(private val context: Context) {
 
@@ -32,17 +36,35 @@ class ThresholdAlert(private val context: Context) {
         NotificationManagerCompat.from(context).createNotificationChannel(channel)
     }
 
-    /** 리듀서가 고른 [content]를 스펙 4절 표의 제목·본문으로 옮긴다. 본문은 한 줄이다(#7 결정). */
+    /**
+     * 리듀서가 고른 [content]를 스펙 4절 표의 제목·본문·부제로 옮긴다. 본문은 한 줄이다(#7 결정).
+     *
+     * 첫 알림과 재알림은 회차 하나로 갈린다. 재알림 본문은 "잠깐 눈을 쉬어 주세요"를 덜어낸 짧은
+     * 쪽이고, 부제에 회차가 붙는다. 첫 알림에는 부제가 없다("1번째"는 셀 것이 없다).
+     */
     fun build(content: ThresholdAlertContent): Notification =
         NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.threshold_alert_title, content.elapsedMinutes))
-            .setContentText(context.getString(R.string.threshold_alert_body_first, content.reAlertMinutes))
+            .setContentText(body(content))
+            .setSubText(
+                if (content.isFirstAlert) {
+                    null
+                } else {
+                    context.getString(R.string.threshold_alert_subtext_count, content.count)
+                },
+            )
             .setColor(ContextCompat.getColor(context, R.color.notification_warning))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(settingsPendingIntent(context))
             .build()
+
+    private fun body(content: ThresholdAlertContent): String = if (content.isFirstAlert) {
+        context.getString(R.string.threshold_alert_body_first, content.reAlertMinutes)
+    } else {
+        context.getString(R.string.threshold_alert_body_re_alert, content.reAlertMinutes)
+    }
 
     companion object {
         const val CHANNEL_ID = "threshold"
