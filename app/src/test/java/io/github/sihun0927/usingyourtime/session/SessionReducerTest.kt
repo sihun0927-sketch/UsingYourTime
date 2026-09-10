@@ -14,6 +14,10 @@ private const val MINUTE_MILLIS = 60_000L
 class SessionReducerTest {
 
     private val settings = TrackingSettings()
+
+    /** 임계값 알림 토글을 끈 설정(스펙 6절). 상시 표시만 남고 임계값 알림이 아예 오지 않는다. */
+    private val alertsDisabled = TrackingSettings(thresholdAlertEnabled = false)
+
     private val nowMillis = 1_700_000_000_000L
 
     @Test
@@ -628,6 +632,211 @@ class SessionReducerTest {
         )
     }
 
+    @Test
+    fun `세션 진행 중 세션 알림 끄기를 누르면 세션이 muted가 된다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(4))
+
+        val reduction = reduce(active, SessionEvent.MuteSession)
+
+        assertEquals(
+            SessionState(
+                Phase.Active,
+                Session(
+                    startedAtMillis = startedAtMillis,
+                    alerts = alertedMinutesAgo(4),
+                    muted = true,
+                ),
+            ),
+            reduction.state,
+        )
+    }
+
+    @Test
+    fun `세션 알림 끄기는 상시 표시를 다시 그리고 임계값 알림을 걷고 muted를 저장한다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(4))
+
+        val reduction = reduce(active, SessionEvent.MuteSession)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 34, muted = true),
+                ),
+                SessionEffect.DismissThresholdAlert,
+                SessionEffect.SaveMuted(muted = true),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `세션 알림 끄기 뒤에는 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
+        val muted = mutedSince(nowMillis - 30 * MINUTE_MILLIS)
+
+        val reduction = reduce(muted, SessionEvent.ThresholdReached)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `세션 알림 끄기 뒤 1분 tick은 초과 상시 표시를 알림 꺼짐으로 그린다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val muted = mutedSince(startedAtMillis, alertedMinutesAgo(4))
+
+        val reduction = reduce(muted, SessionEvent.MinuteTick)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 34, muted = true),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `세션이 닫히고 새 세션이 열리면 세션 알림 끄기가 풀린다`() {
+        val muted = SessionState(
+            Phase.Grace,
+            Session(
+                startedAtMillis = nowMillis - 50 * MINUTE_MILLIS,
+                lockedAtMillis = nowMillis - 10 * MINUTE_MILLIS,
+                alerts = alertedMinutesAgo(20),
+                muted = true,
+            ),
+        )
+
+        val expired = reduce(muted, SessionEvent.GraceExpired)
+        val reopened = reduce(expired.state, SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = nowMillis)),
+            reopened.state,
+        )
+    }
+
+    @Test
+    fun `임계값 알림 토글이 꺼져 있으면 임계값에 닿아도 임계값 알림을 보내지 않는다`() {
+        val active = activeSince(nowMillis - 30 * MINUTE_MILLIS)
+
+        val reduction = reduce(active, SessionEvent.ThresholdReached, alertsDisabled)
+
+        assertEquals(active, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `임계값 알림 토글을 세션 중에 끄면 상시 표시가 다음 알림을 예고하지 않는다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(4))
+
+        val reduction = reduce(active, SessionEvent.MinuteTick, alertsDisabled)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 34, nextAlertMinutes = null),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `임계값 알림 토글이 꺼진 채 임계값을 넘겨도 알림 상태를 적지 않아 다시 켜면 알린다`() {
+        val startedAtMillis = nowMillis - 34 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis)
+
+        val whileDisabled = reduce(active, SessionEvent.MinuteTick, alertsDisabled)
+        val afterEnabled = reduce(whileDisabled.state, SessionEvent.MinuteTick)
+
+        assertEquals(active, whileDisabled.state)
+        assertEquals(
+            SessionEffect.PostThresholdAlert(
+                ThresholdAlertContent(elapsedMinutes = 34, reAlertMinutes = 15),
+            ),
+            afterEnabled.effects[1],
+        )
+    }
+
+    @Test
+    fun `유예 중에 세션 알림 끄기를 누르면 유예 중 그대로 muted가 된다`() {
+        val startedAtMillis = nowMillis - 40 * MINUTE_MILLIS
+        val lockedAtMillis = nowMillis - MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, lockedAtMillis, alertedMinutesAgo(10))
+
+        val reduction = reduce(grace, SessionEvent.MuteSession)
+
+        assertEquals(
+            SessionState(
+                Phase.Grace,
+                Session(
+                    startedAtMillis = startedAtMillis,
+                    lockedAtMillis = lockedAtMillis,
+                    alerts = alertedMinutesAgo(10),
+                    muted = true,
+                ),
+            ),
+            reduction.state,
+        )
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    graceContent(
+                        startedAtMillis,
+                        elapsedMinutes = 40,
+                        graceRemainingMillis = 2 * MINUTE_MILLIS,
+                    ),
+                ),
+                SessionEffect.DismissThresholdAlert,
+                SessionEffect.SaveMuted(muted = true),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `유예 중에 끈 세션이 잠금 해제로 이어지면 세션 알림 끄기가 그대로 남는다`() {
+        val startedAtMillis = nowMillis - 40 * MINUTE_MILLIS
+        val grace = graceSince(startedAtMillis, nowMillis - MINUTE_MILLIS, alertedMinutesAgo(10))
+
+        val muted = reduce(grace, SessionEvent.MuteSession)
+        val resumed = reduce(muted.state, SessionEvent.Unlock)
+
+        assertEquals(
+            SessionState(
+                Phase.Active,
+                Session(
+                    startedAtMillis = startedAtMillis,
+                    alerts = alertedMinutesAgo(10),
+                    muted = true,
+                ),
+            ),
+            resumed.state,
+        )
+        assertEquals(
+            SessionEffect.UpdatePersistentDisplay(
+                activeContent(startedAtMillis, elapsedMinutes = 40, muted = true),
+            ),
+            resumed.effects.first(),
+        )
+    }
+
+    @Test
+    fun `이미 끈 세션에 세션 알림 끄기가 또 오면 아무 일도 하지 않는다`() {
+        val muted = mutedSince(nowMillis - 34 * MINUTE_MILLIS, alertedMinutesAgo(4))
+
+        val reduction = reduce(muted, SessionEvent.MuteSession)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
     private fun reduce(
         state: SessionState,
         event: SessionEvent,
@@ -639,6 +848,15 @@ class SessionReducerTest {
         alerts: AlertState = AlertState.None,
     ): SessionState =
         SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = alerts))
+
+    /** 세션 알림 끄기를 누른 뒤의 세션 진행. 알림은 이미 걷혔으므로 자취만 남는다. */
+    private fun mutedSince(
+        startedAtMillis: Long,
+        alerts: AlertState = AlertState.None,
+    ): SessionState = SessionState(
+        Phase.Active,
+        Session(startedAtMillis = startedAtMillis, alerts = alerts, muted = true),
+    )
 
     private fun graceSince(
         startedAtMillis: Long,
@@ -665,11 +883,13 @@ class SessionReducerTest {
         elapsedMinutes: Int,
         nextAlertMinutes: Int? = null,
         thresholdMinutes: Int = settings.thresholdMinutes,
+        muted: Boolean = false,
     ): PersistentDisplayContent = PersistentDisplayContent.Active(
         sessionStartedAtMillis = startedAtMillis,
         elapsedMinutes = elapsedMinutes,
         thresholdMinutes = thresholdMinutes,
         nextAlertMinutes = nextAlertMinutes,
+        muted = muted,
     )
 
     private fun graceContent(

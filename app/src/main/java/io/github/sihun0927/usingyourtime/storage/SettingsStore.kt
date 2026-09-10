@@ -17,7 +17,7 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 /**
  * 스펙 8절의 DataStore 키를 읽고 쓴다.
  *
- * 재알림 주기·임계값 알림 토글·재시작 안내는 이후 티켓(#24·#25·#28)에서 들어온다.
+ * 재알림 주기·재시작 안내는 이후 티켓(#24·#28)에서 들어온다.
  */
 class SettingsStore(context: Context) {
 
@@ -34,6 +34,8 @@ class SettingsStore(context: Context) {
         DEFAULTS.copy(
             thresholdMinutes = preferences[THRESHOLD_MIN] ?: DEFAULTS.thresholdMinutes,
             graceMinutes = preferences[GRACE_MIN] ?: DEFAULTS.graceMinutes,
+            thresholdAlertEnabled = preferences[THRESHOLD_ALERT_ENABLED]
+                ?: DEFAULTS.thresholdAlertEnabled,
         )
     }
 
@@ -49,6 +51,16 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[GRACE_MIN] = graceMinutes }
     }
 
+    /**
+     * 임계값 알림 토글(스펙 6절). 끄면 상시 표시만 남고 임계값 알림·재알림이 오지 않는다.
+     *
+     * 진행 중인 세션을 끊지 않는다. 서비스가 같은 흐름을 구독하고 있어 다음 판정부터 새 값을
+     * 쓴다(스펙 3절 설정 변경 중 동작).
+     */
+    suspend fun setThresholdAlertEnabled(enabled: Boolean) {
+        dataStore.edit { it[THRESHOLD_ALERT_ENABLED] = enabled }
+    }
+
     private companion object {
         /** 저장된 값이 없을 때 쓰는 기본값. 스펙 6절 표와 같다. */
         val DEFAULTS = TrackingSettings()
@@ -56,5 +68,6 @@ class SettingsStore(context: Context) {
         val TRACKING_ON = booleanPreferencesKey("tracking_on")
         val THRESHOLD_MIN = intPreferencesKey("threshold_min")
         val GRACE_MIN = intPreferencesKey("grace_min")
+        val THRESHOLD_ALERT_ENABLED = booleanPreferencesKey("threshold_alert_enabled")
     }
 }

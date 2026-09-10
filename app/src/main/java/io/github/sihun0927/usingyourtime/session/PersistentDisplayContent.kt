@@ -34,6 +34,12 @@ sealed interface PersistentDisplayContent {
          * 그때 초과 본문은 사실만 적는다. `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
          */
         val nextAlertMinutes: Int? = null,
+
+        /**
+         * 세션 알림 끄기 뒤인지. 참이면 초과 본문이 "임계값 초과 · 이번 세션 알림 꺼짐"이 된다
+         * (스펙 4절 표). 초과 전에는 본문이 남은 시간이라 이 값이 보이지 않는다.
+         */
+        val muted: Boolean = false,
     ) : Open
 
     /** 유예 중. chronometer·막대는 세션 진행과 같고 본문만 남은 유예로 바뀐다. */

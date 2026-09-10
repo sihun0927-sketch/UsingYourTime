@@ -19,7 +19,11 @@ import io.github.sihun0927.usingyourtime.session.ThresholdAlertContent
  * 끄기·측정 중지 셋으로 못박았고, 사용자가 손으로 지우는 것은 다음 재알림까지 알림을 보지 않겠다는
  * 뜻이 따로 있다. 탭으로 지워지면 그 셋도 이것도 아닌 네 번째 길이 된다.
  *
- * 액션 버튼 "이번 세션 알림 끄기"와 재알림 본문·부제 회차는 이후 티켓(#24·#25)에서 들어온다.
+ * 액션은 스펙 4절대로 1개다. 아이콘 없이 텍스트만 두는 기본 스타일이라 `Notification.Builder`
+ * 템플릿을 벗어나지 않는다. 누르면 `세션 알림 끄기` 이벤트가 들어가 이 세션이 닫힐 때까지
+ * 임계값 알림·재알림이 멈추고, 이 알림 자체도 리듀서가 낸 제거 효과로 걷힌다.
+ *
+ * 재알림 본문·부제 회차는 이후 티켓(#24)에서 들어온다.
  */
 class ThresholdAlert(private val context: Context) {
 
@@ -42,9 +46,19 @@ class ThresholdAlert(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(settingsPendingIntent(context))
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    NO_ACTION_ICON,
+                    context.getString(R.string.threshold_alert_action_mute),
+                    muteSessionPendingIntent(context),
+                ).build(),
+            )
             .build()
 
     companion object {
+        /** 액션의 아이콘 자리. 0이면 아이콘 없이 텍스트만 남는다(스펙 4절 "기본 텍스트 스타일"). */
+        private const val NO_ACTION_ICON = 0
+
         const val CHANNEL_ID = "threshold"
 
         /** 임계값 알림 id. 재알림도 같은 id로 다시 게시해 알림 창에 한 개만 남는다(스펙 4절). */

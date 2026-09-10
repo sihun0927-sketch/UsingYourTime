@@ -3,7 +3,7 @@ package io.github.sihun0927.usingyourtime.session
 /**
  * 리듀서에 들어가는 이벤트(스펙 3절).
  *
- * 재알림 주기 경과·세션 알림 끄기·서비스 재시작은 이후 티켓(#24~#27)에서 들어온다.
+ * 재알림 주기 경과·서비스 재시작은 이후 티켓(#24·#27)에서 들어온다.
  */
 sealed interface SessionEvent {
 
@@ -36,6 +36,13 @@ sealed interface SessionEvent {
      * 다시 판정한다.
      */
     data object ThresholdReached : SessionEvent
+
+    /**
+     * 임계값 알림의 액션 버튼 "이번 세션 알림 끄기"를 눌렀다.
+     *
+     * 이 세션이 닫힐 때까지 임계값 알림·재알림이 멈춘다. 되돌리는 이벤트는 없다(스펙 3절 전이표).
+     */
+    data object MuteSession : SessionEvent
 
     /** 서비스 내 1분 타이머. 상시 표시를 다시 그린다. */
     data object MinuteTick : SessionEvent

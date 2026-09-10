@@ -40,14 +40,15 @@ private const val TICK_MILLIS = 1_000L
  * 3줄(측정 상태·연속 사용 시간·버튼)에 꺼짐 설명 문단과 조건부 안내 줄이 붙는다.
  * [sessionStartedAtMillis]가 있으면 연속 사용 시간이 1초마다 올라가고, 없으면 "—"다.
  *
- * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 지금 있는 것은 알림 권한과
- * [lockScreenAbsent]이고, 사이에 들어갈 세션 알림 끄기·재시작 안내는 각 티켓에서 온다.
+ * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 지금 있는 것은 알림 권한·[muted]·
+ * [lockScreenAbsent]이고, 사이에 들어갈 재시작 안내는 #28에서 온다.
  */
 @Composable
 internal fun StatusCard(
     trackingOn: Boolean,
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
+    muted: Boolean,
     lockScreenAbsent: Boolean,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
@@ -81,6 +82,12 @@ internal fun StatusCard(
                 )
             }
             NotificationPermissionNotice(notificationPermission)
+            if (muted) {
+                SupportingText(
+                    text = stringResource(R.string.status_card_muted),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (lockScreenAbsent) {
                 SupportingText(
                     text = stringResource(R.string.status_card_lock_screen_absent),
@@ -214,6 +221,7 @@ private fun StatusCardOffPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
+            muted = false,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -229,6 +237,7 @@ private fun StatusCardActivePreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
+            muted = false,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -244,7 +253,24 @@ private fun StatusCardLockScreenAbsentPreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
+            muted = false,
             lockScreenAbsent = true,
+            onStartTracking = {},
+            onPause = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun StatusCardMutedPreview() {
+    UsingTimeTheme {
+        StatusCard(
+            trackingOn = true,
+            sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * TICK_MILLIS,
+            notificationPermission = NotificationPermission.Granted,
+            muted = true,
+            lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
         )
@@ -259,6 +285,7 @@ private fun StatusCardPermissionRequiredPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Required,
+            muted = false,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -274,6 +301,7 @@ private fun StatusCardPermissionDeniedPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Denied,
+            muted = false,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},

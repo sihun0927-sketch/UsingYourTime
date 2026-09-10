@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                 val trackingOn by settingsStore.trackingOn.collectAsState(initial = false)
                 val settings by settingsStore.settings.collectAsState(initial = TrackingSettings())
                 val sessionStartedAtMillis by TrackingStatus.sessionStartedAtMillis.collectAsState()
+                val muted by TrackingStatus.muted.collectAsState()
                 val lockScreenAbsent by TrackingStatus.lockScreenAbsent.collectAsState()
                 val notificationPermissionRequest = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
@@ -66,9 +67,11 @@ class MainActivity : ComponentActivity() {
                     trackingOn = trackingOn,
                     sessionStartedAtMillis = sessionStartedAtMillis,
                     notificationPermission = notificationPermission,
+                    muted = muted,
                     lockScreenAbsent = lockScreenAbsent,
                     thresholdMinutes = settings.thresholdMinutes,
                     graceMinutes = settings.graceMinutes,
+                    thresholdAlertEnabled = settings.thresholdAlertEnabled,
                     onStartTracking = {
                         when (notificationPermission) {
                             NotificationPermission.Granted -> TrackingService.startTracking(this)
@@ -86,6 +89,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onGraceMinutesChange = { minutes ->
                         lifecycleScope.launch { settingsStore.setGraceMinutes(minutes) }
+                    },
+                    onThresholdAlertEnabledChange = { enabled ->
+                        lifecycleScope.launch { settingsStore.setThresholdAlertEnabled(enabled) }
                     },
                 )
             }

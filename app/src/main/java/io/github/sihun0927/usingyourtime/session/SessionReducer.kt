@@ -34,6 +34,7 @@ object SessionReducer {
             ?: rescheduleGraceExpiry(state, nowMillis, settings)
 
         SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings) ?: Reduction(state)
+        SessionEvent.MuteSession -> muteSession(state, nowMillis, settings)
 
         // 임계값을 이미 지난 값으로 낮췄으면 이 tick이 곧 `임계값 도달`이다(스펙 3절 설정 변경 중
         // 동작). 걸어 둔 깨우기는 이미 지나가 버렸기 때문이다.
@@ -150,11 +151,45 @@ object SessionReducer {
     }
 
     /**
+     * 세션 진행·유예 중 → 그대로. 이 세션이 닫힐 때까지 임계값 알림·재알림을 멈춘다(전이표).
+     *
+     * 국면은 바뀌지 않으므로 상시 표시도 지금 국면의 것을 다시 그린다. 세션 진행이면 본문이
+     * "임계값 초과 · 이번 세션 알림 꺼짐"으로 바뀌고, 유예 중이면 남은 유예 그대로다(스펙 4절 표).
+     *
+     * 이미 꺼진 세션에 또 오면 아무 일도 하지 않는다. 되돌리는 길이 없어 두 번째 탭은 첫 번째와
+     * 같은 뜻이고, 알림은 이미 걷혔다.
+     */
+    private fun muteSession(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        if (state.phase != Phase.Active && state.phase != Phase.Grace) return Reduction(state)
+        val session = state.openSession()
+        if (session.muted) return Reduction(state)
+
+        val muted = session.copy(muted = true)
+        val content = if (state.phase == Phase.Grace) {
+            graceContent(muted, nowMillis, settings)
+        } else {
+            activeContent(muted, nowMillis, settings)
+        }
+        return Reduction(
+            state = SessionState(state.phase, muted),
+            effects = buildList {
+                add(SessionEffect.UpdatePersistentDisplay(content))
+                if (muted.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+                add(SessionEffect.SaveMuted(muted = true))
+            },
+        )
+    }
+
+    /**
      * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
      *
-     * 발송 조건은 스펙 4절이다. 세션 진행 상태이고, 연속 사용 시간이 임계값에 닿았고, 이 세션에서
-     * 아직 알린 적이 없어야 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이
-     * 조건에 더해진다.
+     * 발송 조건은 스펙 4절이다. 세션 진행 상태 · 연속 사용 시간 ≥ 임계값 · 임계값 알림 토글 켜짐 ·
+     * 세션의 `muted == false`, 그리고 이 세션에서 아직 알린 적이 없어야 한다. 재알림은 #24가 같은
+     * 조건([alertsAllowed])을 나눠 쓴다.
      *
      * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
      * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
@@ -170,6 +205,7 @@ object SessionReducer {
     ): Reduction? {
         if (state.phase != Phase.Active) return null
         val session = state.openSession()
+        if (!alertsAllowed(session, settings)) return null
         if (session.alerts.alerted) return null
         if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
 
@@ -194,6 +230,19 @@ object SessionReducer {
             ),
         )
     }
+
+    /**
+     * 이 세션에 임계값 알림·재알림을 보내도 되는지(스펙 4절 발송 조건 중 세션·설정 몫).
+     *
+     * 둘 다 알림만 막고 측정과 상시 표시는 그대로 둔다. 토글이 꺼져 있어도 상시 표시의 초과 표기와
+     * 경고색은 유지된다(스펙 4절).
+     *
+     * 토글은 저장 즉시 적용된다(스펙 3절 설정 변경 중 동작). 꺼진 동안 임계값을 넘겨도 알림 상태를
+     * 적지 않으므로, 세션 중에 다시 켜면 다음 판정에서 첫 임계값 알림이 나간다. 세션 알림 끄기는
+     * 반대로 세션에 새겨져 세션이 닫힐 때까지 풀리지 않는다.
+     */
+    private fun alertsAllowed(session: Session, settings: TrackingSettings): Boolean =
+        settings.thresholdAlertEnabled && !session.muted
 
     /**
      * 유예 중이고 잠금 시각으로부터 유예가 이미 지났으면 유예 중 → 세션 없음 전이, 아니면 null.
@@ -322,6 +371,7 @@ object SessionReducer {
         elapsedMinutes = elapsedMinutes(session, nowMillis),
         thresholdMinutes = settings.thresholdMinutes,
         nextAlertMinutes = nextAlertMinutes(session, nowMillis, settings),
+        muted = session.muted,
     )
 
     /**
@@ -332,12 +382,17 @@ object SessionReducer {
      *
      * 재알림이 붙으면(#24) 주기가 지나는 순간 알림이 나가면서 기준점이 옮겨지므로, "이미 지났다"는
      * 쪽은 그 자리를 비운다. 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
+     *
+     * 알림이 막혀 있으면([alertsAllowed]) 예고할 다음 알림 자체가 없어 null이다. 스펙 4절 표가 토글
+     * 꺼짐의 초과 본문을 "임계값 30분 초과"로 정한 자리이고, 세션 알림 끄기는 그 자리에
+     * "이번 세션 알림 꺼짐"을 적는다.
      */
     private fun nextAlertMinutes(
         session: Session,
         nowMillis: Long,
         settings: TrackingSettings,
     ): Int? {
+        if (!alertsAllowed(session, settings)) return null
         val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
         val remainingMillis = lastAlertAtMillis + settings.reAlertIntervalMillis - nowMillis
         if (remainingMillis <= 0) return null

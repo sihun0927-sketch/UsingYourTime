@@ -46,6 +46,10 @@ interface SessionDao {
         count = alerts.count,
     )
 
+    /** 열린 세션 행의 세션 알림 끄기를 적는다. 세션이 이어질 때 함께 복원된다(스펙 7절). */
+    @Query("UPDATE sessions SET muted = :muted WHERE id = $OPEN_SESSION_ID")
+    suspend fun saveMuted(muted: Boolean)
+
     @Query(
         "UPDATE sessions SET ended_at = :endedAtMillis, end_reason = :reason " +
             "WHERE id = $OPEN_SESSION_ID",

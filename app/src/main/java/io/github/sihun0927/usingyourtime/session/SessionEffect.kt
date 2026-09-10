@@ -3,7 +3,7 @@ package io.github.sihun0927.usingyourtime.session
 /**
  * 리듀서가 돌려주는 부수효과(스펙 3절). 값일 뿐이고, 실행은 `tracking`의 서비스가 한다.
  *
- * 재알림 게시와 세션 알림 끄기의 알림 제거는 이후 티켓(#24·#25)에서 들어온다.
+ * 재알림 게시는 이후 티켓(#24)에서 들어온다.
  */
 sealed interface SessionEffect {
 
@@ -49,6 +49,12 @@ sealed interface SessionEffect {
 
     /** 열린 세션 행에 알림 상태를 적는다. 세션이 이어질 때 다시 울리지 않게 하는 재료다(스펙 7절). */
     data class SaveAlertState(val alerts: AlertState) : SessionEffect
+
+    /**
+     * 열린 세션 행의 `muted`를 적는다. 알림 상태와 함께 세션에 속하므로 세션이 이어지면 세션 알림
+     * 끄기도 함께 복원된다(스펙 7절).
+     */
+    data class SaveMuted(val muted: Boolean) : SessionEffect
 
     /**
      * [atMillis]에 `임계값 도달` 이벤트로 깨우도록 예약한다(서비스 내 타이머).
