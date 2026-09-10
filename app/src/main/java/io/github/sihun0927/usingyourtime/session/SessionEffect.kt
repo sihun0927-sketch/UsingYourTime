@@ -2,7 +2,6 @@ package io.github.sihun0927.usingyourtime.session
 
 /**
  * 리듀서가 돌려주는 부수효과(스펙 3절). 값일 뿐이고, 실행은 `tracking`의 서비스가 한다.
- *
  */
 sealed interface SessionEffect {
 
