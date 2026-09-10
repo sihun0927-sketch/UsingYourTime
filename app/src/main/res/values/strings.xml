@@ -20,6 +20,8 @@
     <string name="notification_channel_threshold_description">연속 사용 시간이 임계값에 닿으면 소리·진동으로 알려요</string>
     <string name="threshold_alert_title">%1$d분째 연속 사용 중</string>
     <string name="threshold_alert_body_first">잠깐 눈을 쉬어 주세요. 계속 쓰면 %1$d분 뒤 다시 알려요.</string>
+    <string name="threshold_alert_body_re_alert">%1$d분 뒤 다시 알려요</string>
+    <string name="threshold_alert_subtext_count">%1$d번째</string>
     <string name="threshold_alert_action_mute">이번 세션 알림 끄기</string>
 
     <!-- 상태 카드 (스펙 5절) -->
@@ -50,6 +52,8 @@
     <string name="action_cancel">취소</string>
     <string name="setting_grace_period_label">유예 시간</string>
     <string name="setting_grace_period_description">잠근 뒤 이 시간 안에 다시 열면 같은 세션이 이어져요. 0분이면 잠그는 즉시 끝나요.</string>
+    <string name="setting_re_alert_label">재알림 주기</string>
+    <string name="setting_re_alert_description">임계값을 넘긴 뒤에도 계속 쓰면 이 주기마다 다시 알려드려요. 알림을 지워도 다음 주기에 다시 와요.</string>
     <string name="setting_minutes_chip">%1$d분</string>
     <string name="setting_threshold_alert_label">임계값 알림</string>
     <string name="setting_threshold_alert_description">임계값에 닿으면 소리·진동으로 알려드려요. 끄면 상태바의 상시 표시만 남아요.</string>

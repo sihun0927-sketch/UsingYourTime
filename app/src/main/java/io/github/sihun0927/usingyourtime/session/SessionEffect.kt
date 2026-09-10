@@ -3,7 +3,6 @@ package io.github.sihun0927.usingyourtime.session
 /**
  * 리듀서가 돌려주는 부수효과(스펙 3절). 값일 뿐이고, 실행은 `tracking`의 서비스가 한다.
  *
- * 재알림 게시는 이후 티켓(#24)에서 들어온다.
  */
 sealed interface SessionEffect {
 
@@ -41,7 +40,12 @@ sealed interface SessionEffect {
     /** 예약해 둔 유예 만료 깨우기를 취소한다. 유예 중을 벗어날 때마다 낸다. */
     data object CancelGraceExpiry : SessionEffect
 
-    /** 임계값 알림을 [content]대로 게시한다(스펙 4절). 채널 `threshold`, heads-up. */
+    /**
+     * 임계값 알림을 [content]대로 게시한다(스펙 4절). 채널 `threshold`, heads-up.
+     *
+     * 재알림도 이 효과다. 알림 id가 같아 알림 창에서 앞의 것을 갈아치우고, 회차는 [content]가
+     * 이고 있다(스펙 4절). 재알림을 따로 두면 게시하는 쪽이 똑같은 알림을 두 번 짓게 된다.
+     */
     data class PostThresholdAlert(val content: ThresholdAlertContent) : SessionEffect
 
     /** 게시해 둔 임계값 알림을 알림 창에서 걷는다. 세션이 닫힐 때 낸다(스펙 4절 제거 시점). */
@@ -63,4 +67,13 @@ sealed interface SessionEffect {
      * 상태에서만 나가므로(스펙 4절) 기기가 잠든 동안 깨울 이유가 없다.
      */
     data class ScheduleThresholdAlert(val atMillis: Long) : SessionEffect
+
+    /**
+     * [atMillis]에 `재알림 주기 경과` 이벤트로 깨우도록 예약한다(서비스 내 타이머).
+     *
+     * 알림을 하나 보낼 때마다 다시 건다. [atMillis]는 늘 **그 알림 시각 + 재알림 주기**라, 사용자가
+     * 알림을 지웠든 그대로 두었든 다음 재알림 시각이 같다(스펙 4절). 취소하는 효과는 없다. 세션이
+     * 닫힌 뒤 남은 타이머가 깨워도 리듀서가 열린 세션이 없다고 보고 흘려보낸다.
+     */
+    data class ScheduleReAlert(val atMillis: Long) : SessionEffect
 }

@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     lockScreenAbsent = lockScreenAbsent,
                     thresholdMinutes = settings.thresholdMinutes,
                     graceMinutes = settings.graceMinutes,
+                    reAlertMinutes = settings.reAlertMinutes,
                     thresholdAlertEnabled = settings.thresholdAlertEnabled,
                     onStartTracking = {
                         when (notificationPermission) {
@@ -89,6 +90,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onGraceMinutesChange = { minutes ->
                         lifecycleScope.launch { settingsStore.setGraceMinutes(minutes) }
+                    },
+                    onReAlertMinutesChange = { minutes ->
+                        lifecycleScope.launch { settingsStore.setReAlertMinutes(minutes) }
                     },
                     onThresholdAlertEnabledChange = { enabled ->
                         lifecycleScope.launch { settingsStore.setThresholdAlertEnabled(enabled) }

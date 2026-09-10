@@ -17,7 +17,7 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 /**
  * 스펙 8절의 DataStore 키를 읽고 쓴다.
  *
- * 재알림 주기·재시작 안내는 이후 티켓(#24·#28)에서 들어온다.
+ * 재시작 안내는 이후 티켓(#28)에서 들어온다.
  */
 class SettingsStore(context: Context) {
 
@@ -34,6 +34,7 @@ class SettingsStore(context: Context) {
         DEFAULTS.copy(
             thresholdMinutes = preferences[THRESHOLD_MIN] ?: DEFAULTS.thresholdMinutes,
             graceMinutes = preferences[GRACE_MIN] ?: DEFAULTS.graceMinutes,
+            reAlertMinutes = preferences[REALERT_MIN] ?: DEFAULTS.reAlertMinutes,
             thresholdAlertEnabled = preferences[THRESHOLD_ALERT_ENABLED]
                 ?: DEFAULTS.thresholdAlertEnabled,
         )
@@ -49,6 +50,10 @@ class SettingsStore(context: Context) {
 
     suspend fun setGraceMinutes(graceMinutes: Int) {
         dataStore.edit { it[GRACE_MIN] = graceMinutes }
+    }
+
+    suspend fun setReAlertMinutes(reAlertMinutes: Int) {
+        dataStore.edit { it[REALERT_MIN] = reAlertMinutes }
     }
 
     /**
@@ -68,6 +73,7 @@ class SettingsStore(context: Context) {
         val TRACKING_ON = booleanPreferencesKey("tracking_on")
         val THRESHOLD_MIN = intPreferencesKey("threshold_min")
         val GRACE_MIN = intPreferencesKey("grace_min")
+        val REALERT_MIN = intPreferencesKey("realert_min")
         val THRESHOLD_ALERT_ENABLED = booleanPreferencesKey("threshold_alert_enabled")
     }
 }

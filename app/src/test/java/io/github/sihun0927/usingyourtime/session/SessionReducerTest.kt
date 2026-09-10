@@ -8,8 +8,6 @@ private const val MINUTE_MILLIS = 60_000L
 
 /**
  * 스펙 3절 전이표를 한 줄씩 값 비교로 검증한다.
- *
- * 재알림 줄은 이후 티켓(#24)에서 이 파일에 들어온다.
  */
 class SessionReducerTest {
 
@@ -440,9 +438,10 @@ class SessionReducerTest {
                     activeContent(startedAtMillis, elapsedMinutes = 30, nextAlertMinutes = 15),
                 ),
                 SessionEffect.PostThresholdAlert(
-                    ThresholdAlertContent(elapsedMinutes = 30, reAlertMinutes = 15),
+                    ThresholdAlertContent(elapsedMinutes = 30, reAlertMinutes = 15, count = 1),
                 ),
                 SessionEffect.SaveAlertState(alerts),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
             ),
             reduction.effects,
         )
@@ -480,7 +479,7 @@ class SessionReducerTest {
                     ),
                 ),
                 SessionEffect.PostThresholdAlert(
-                    ThresholdAlertContent(elapsedMinutes = 40, reAlertMinutes = 15),
+                    ThresholdAlertContent(elapsedMinutes = 40, reAlertMinutes = 15, count = 1),
                 ),
                 SessionEffect.SaveAlertState(
                     AlertState(
@@ -489,6 +488,7 @@ class SessionReducerTest {
                         count = 1,
                     ),
                 ),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
             ),
             reduction.effects,
         )
@@ -618,18 +618,178 @@ class SessionReducerTest {
     @Test
     fun `다음 재알림 시각이 지나면 상시 표시에 남은 분을 적지 않는다`() {
         val startedAtMillis = nowMillis - 50 * MINUTE_MILLIS
-        val active = activeSince(startedAtMillis, alertedMinutesAgo(20))
+        val grace = graceSince(startedAtMillis, nowMillis - MINUTE_MILLIS, alertedMinutesAgo(20))
 
-        val reduction = reduce(active, SessionEvent.MinuteTick)
+        val reduction = reduce(grace, SessionEvent.Unlock)
 
+        // 밀린 재알림을 이 자리에서 1회 보내는 일은 #26이 맡는다. 그전까지 본문은 초과했다는
+        // 사실만 적는다(`docs/adr/0003-persistent-display-body-when-no-next-alert.md`).
         assertEquals(
             listOf(
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 50, nextAlertMinutes = null),
                 ),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
+    }
+
+    @Test
+    fun `세션 진행 중 재알림 주기가 지나면 회차를 올려 재알림을 보낸다`() {
+        val startedAtMillis = nowMillis - 45 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(15))
+        val reAlerted = AlertState(
+            thresholdAlertedAtMillis = nowMillis - 15 * MINUTE_MILLIS,
+            lastAlertAtMillis = nowMillis,
+            count = 2,
+        )
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(
+            SessionState(Phase.Active, Session(startedAtMillis = startedAtMillis, alerts = reAlerted)),
+            reduction.state,
+        )
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 45, nextAlertMinutes = 15),
+                ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 45, reAlertMinutes = 15, count = 2),
+                ),
+                SessionEffect.SaveAlertState(reAlerted),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `재알림 주기는 세션 시작이 아니라 직전 알림 시각부터 잰다`() {
+        val startedAtMillis = nowMillis - 100 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(14))
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed)
+
+        // 세션은 100분째지만 직전 알림에서는 14분밖에 지나지 않아 재알림이 나가지 않는다.
+        assertEquals(active, reduction.state)
+        assertEquals(
+            listOf(SessionEffect.ScheduleReAlert(atMillis = nowMillis + MINUTE_MILLIS)),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `재알림 주기를 늘려 깨우기가 이르게 오면 직전 알림 시각 기준으로 다시 예약한다`() {
+        val active = activeSince(nowMillis - 45 * MINUTE_MILLIS, alertedMinutesAgo(10))
+        val raised = TrackingSettings(reAlertMinutes = 30)
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed, raised)
+
+        assertEquals(active, reduction.state)
+        assertEquals(
+            listOf(SessionEffect.ScheduleReAlert(atMillis = nowMillis + 20 * MINUTE_MILLIS)),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `직전 알림에서 딱 재알림 주기만큼 지난 순간에 재알림이 나간다`() {
+        val active = activeSince(nowMillis - 45 * MINUTE_MILLIS, alertedMinutesAgo(15))
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(2, reduction.state.session?.alerts?.count)
+    }
+
+    @Test
+    fun `재알림에는 상한이 없어 주기마다 회차가 계속 올라간다`() {
+        // 사용자가 알림을 지웠는지는 리듀서가 아예 모르는 사실이라, 회차는 그것과 무관하게
+        // 주기마다 계속 올라간다(스펙 4절).
+        var state = activeSince(nowMillis - 30 * MINUTE_MILLIS, alertedMinutesAgo(0))
+        var atMillis = nowMillis
+
+        repeat(5) {
+            atMillis += 15 * MINUTE_MILLIS
+            state = SessionReducer
+                .reduce(state, SessionEvent.ReAlertIntervalElapsed, atMillis, settings)
+                .state
+        }
+
+        assertEquals(6, state.session?.alerts?.count)
+    }
+
+    @Test
+    fun `임계값 알림을 보낸 적 없는 세션에는 재알림 주기 경과가 와도 보내지 않는다`() {
+        val active = activeSince(nowMillis - 10 * MINUTE_MILLIS)
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(active, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `유예 중에는 재알림 주기가 지나도 재알림을 보내지 않는다`() {
+        val grace = graceSince(
+            startedAtMillis = nowMillis - 60 * MINUTE_MILLIS,
+            lockedAtMillis = nowMillis - MINUTE_MILLIS,
+            alerts = alertedMinutesAgo(20),
+        )
+
+        val reduction = reduce(grace, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(grace, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `세션 없음에서 재알림 주기 경과가 와도 아무 일도 하지 않는다`() {
+        assertEquals(
+            Reduction(SessionState.Idle),
+            reduce(SessionState.Idle, SessionEvent.ReAlertIntervalElapsed),
+        )
+    }
+
+    @Test
+    fun `재알림 주기를 이미 지난 값으로 낮추면 다음 1분 tick이 재알림으로 처리한다`() {
+        val startedAtMillis = nowMillis - 45 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(10))
+        val lowered = TrackingSettings(reAlertMinutes = 5)
+
+        val reduction = reduce(active, SessionEvent.MinuteTick, lowered)
+
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 45, nextAlertMinutes = 5),
+                ),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(elapsedMinutes = 45, reAlertMinutes = 5, count = 2),
+                ),
+                SessionEffect.SaveAlertState(
+                    AlertState(
+                        thresholdAlertedAtMillis = nowMillis - 10 * MINUTE_MILLIS,
+                        lastAlertAtMillis = nowMillis,
+                        count = 2,
+                    ),
+                ),
+                SessionEffect.ScheduleReAlert(atMillis = nowMillis + 5 * MINUTE_MILLIS),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `첫 임계값 알림이 나가는 1분 tick은 재알림을 겹쳐 보내지 않는다`() {
+        val active = activeSince(nowMillis - 40 * MINUTE_MILLIS)
+
+        val reduction = reduce(active, SessionEvent.MinuteTick)
+
+        assertEquals(1, reduction.state.session?.alerts?.count)
     }
 
     @Test
@@ -774,7 +934,7 @@ class SessionReducerTest {
         assertEquals(active, whileDisabled.state)
         assertEquals(
             SessionEffect.PostThresholdAlert(
-                ThresholdAlertContent(elapsedMinutes = 34, reAlertMinutes = 15),
+                ThresholdAlertContent(elapsedMinutes = 34, reAlertMinutes = 15, count = 1),
             ),
             afterEnabled.effects[1],
         )
@@ -851,6 +1011,58 @@ class SessionReducerTest {
 
         assertEquals(muted, reduction.state)
         assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `세션 알림 끄기 뒤에는 재알림 주기가 지나도 재알림을 보내지 않는다`() {
+        // 깨우기를 다시 걸지도 않는다. 직전 알림 시각이 더는 움직이지 않아, 다시 걸면 이미 지난
+        // 시각으로 잡혀 곧바로 깨어나는 쳇바퀴가 된다.
+        val muted = mutedSince(nowMillis - 45 * MINUTE_MILLIS, alertedMinutesAgo(15))
+
+        val reduction = reduce(muted, SessionEvent.ReAlertIntervalElapsed)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `임계값 알림 토글이 꺼져 있으면 재알림 주기가 지나도 재알림을 보내지 않는다`() {
+        val active = activeSince(nowMillis - 45 * MINUTE_MILLIS, alertedMinutesAgo(15))
+
+        val reduction = reduce(active, SessionEvent.ReAlertIntervalElapsed, alertsDisabled)
+
+        assertEquals(active, reduction.state)
+        assertEquals(emptyList<SessionEffect>(), reduction.effects)
+    }
+
+    @Test
+    fun `세션 알림 끄기 뒤 1분 tick은 재알림 주기가 지났어도 다시 그리기만 한다`() {
+        val startedAtMillis = nowMillis - 45 * MINUTE_MILLIS
+        val muted = mutedSince(startedAtMillis, alertedMinutesAgo(15))
+
+        val reduction = reduce(muted, SessionEvent.MinuteTick)
+
+        assertEquals(muted, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    activeContent(startedAtMillis, elapsedMinutes = 45, muted = true),
+                ),
+            ),
+            reduction.effects,
+        )
+    }
+
+    @Test
+    fun `임계값 알림 토글을 다시 켜면 다음 1분 tick이 밀린 재알림을 집어 올린다`() {
+        val startedAtMillis = nowMillis - 45 * MINUTE_MILLIS
+        val active = activeSince(startedAtMillis, alertedMinutesAgo(15))
+
+        val whileDisabled = reduce(active, SessionEvent.MinuteTick, alertsDisabled)
+        val afterEnabled = reduce(whileDisabled.state, SessionEvent.MinuteTick)
+
+        assertEquals(1, whileDisabled.state.session?.alerts?.count)
+        assertEquals(2, afterEnabled.state.session?.alerts?.count)
     }
 
     private fun reduce(
