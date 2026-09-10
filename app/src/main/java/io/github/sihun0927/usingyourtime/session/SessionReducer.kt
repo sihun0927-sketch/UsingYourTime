@@ -33,9 +33,14 @@ object SessionReducer {
         SessionEvent.GraceExpired -> closeExpiredGrace(state, nowMillis, settings)
             ?: rescheduleGraceExpiry(state, nowMillis, settings)
 
-        SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings) ?: Reduction(state)
+        SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings)
+            ?: repaintSuppressedThreshold(state, nowMillis, settings)
+            ?: Reduction(state)
+
         SessionEvent.ReAlertIntervalElapsed -> reAlert(state, nowMillis, settings)
-            ?: rescheduleReAlert(state, settings)
+            ?: rescheduleReAlert(state, nowMillis, settings)
+
+        SessionEvent.MuteSession -> muteSession(state, nowMillis, settings)
 
         // 임계값이나 재알림 주기를 이미 지난 값으로 낮췄으면 이 tick이 곧 그 깨우기다(스펙 3절
         // 설정 변경 중 동작). 걸어 둔 깨우기는 옛 값으로 잡혀 있어 아직 오지 않기 때문이다.
@@ -156,10 +161,50 @@ object SessionReducer {
     }
 
     /**
+     * 세션 진행·유예 중 → 그대로. 이 세션이 닫힐 때까지 임계값 알림·재알림을 멈춘다(전이표).
+     *
+     * 국면은 바뀌지 않으므로 상시 표시도 지금 국면의 것을 다시 그린다. 세션 진행이면 본문이
+     * "임계값 초과 · 이번 세션 알림 꺼짐"으로 바뀐다.
+     *
+     * **유예 중이면 남은 유예 그대로다.** 전이표는 이 칸의 하는 일을 "상시 표시 본문에 '이번 세션
+     * 알림 꺼짐'"이라 적었지만, 본문을 정하는 것은 4절 표이고 그 표의 유예 중 행은 본문을
+     * "잠금 중 · 유예 m:ss 남음" 하나로 못박았다. 알림 꺼짐 본문은 표에서 **세션 진행 · 초과**
+     * 행에만 있다. 더 구체적인 쪽을 따른다. 유예 안에 잠금 해제되어 세션 진행으로 돌아오는 순간
+     * 그 본문이 나온다.
+     *
+     * 이미 꺼진 세션에 또 오면 아무 일도 하지 않는다. 되돌리는 길이 없어 두 번째 탭은 첫 번째와
+     * 같은 뜻이고, 알림은 이미 걷혔다.
+     */
+    private fun muteSession(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        if (state.phase != Phase.Active && state.phase != Phase.Grace) return Reduction(state)
+        val session = state.openSession()
+        if (session.muted) return Reduction(state)
+
+        val muted = session.copy(muted = true)
+        return Reduction(
+            state = SessionState(state.phase, muted),
+            effects = buildList {
+                add(
+                    SessionEffect.UpdatePersistentDisplay(
+                        openContent(state.phase, muted, nowMillis, settings),
+                    ),
+                )
+                if (muted.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+                add(SessionEffect.SaveMuted(muted = true))
+            },
+        )
+    }
+
+    /**
      * 지금 첫 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
      *
-     * 발송 조건은 스펙 4절이다. 세션 진행 상태이고, 연속 사용 시간이 임계값에 닿았고, 이 세션에서
-     * 아직 알린 적이 없어야 한다. 임계값 알림 토글과 세션 알림 끄기는 #25에서 이 조건에 더해진다.
+     * 발송 조건은 스펙 4절이다. 세션 진행 상태 · 연속 사용 시간 ≥ 임계값 · 임계값 알림 토글 켜짐 ·
+     * 세션의 `muted == false`([alertsAllowed]), 그리고 이 세션에서 아직 알린 적이 없어야 한다.
+     * 뒤의 두 조건은 [reAlert]도 같이 본다.
      *
      * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
      * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
@@ -172,6 +217,7 @@ object SessionReducer {
     ): Reduction? {
         if (state.phase != Phase.Active) return null
         val session = state.openSession()
+        if (!alertsAllowed(session, settings)) return null
         if (session.alerts.alerted) return null
         if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
 
@@ -205,6 +251,7 @@ object SessionReducer {
     ): Reduction? {
         if (state.phase != Phase.Active) return null
         val session = state.openSession()
+        if (!alertsAllowed(session, settings)) return null
         val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
         if (nowMillis - lastAlertAtMillis < settings.reAlertIntervalMillis) return null
 
@@ -229,16 +276,26 @@ object SessionReducer {
      * 셀 기준점이 없으면(세션이 닫혔거나 잠겼거나 아직 알린 적이 없다) 걸 시각도 없다. 잠금 중에
      * 밀린 알림은 다음 잠금 해제 직후에 판정한다(#26).
      */
-    private fun rescheduleReAlert(state: SessionState, settings: TrackingSettings): Reduction {
+    private fun rescheduleReAlert(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
         if (state.phase != Phase.Active) return Reduction(state)
-        val lastAlertAtMillis = state.openSession().alerts.lastAlertAtMillis ?: return Reduction(state)
+        val session = state.openSession()
+        val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return Reduction(state)
 
-        return Reduction(
-            state = state,
-            effects = listOf(
-                SessionEffect.ScheduleReAlert(lastAlertAtMillis + settings.reAlertIntervalMillis),
-            ),
-        )
+        // 지난 시각으로는 걸지 않는다. 그 시각이 지났는데도 재알림이 나가지 않았다면 막은 것이
+        // 무엇이든 다시 걸 이유가 없고, 서비스의 깨우기가 음수만큼 기다려 곧바로 돌아오므로 같은
+        // 자리를 맴돌게 된다. 막는 이유를 하나씩 세는 대신 여기서 종류째 닫는다.
+        val atMillis = lastAlertAtMillis + settings.reAlertIntervalMillis
+        if (atMillis <= nowMillis) return Reduction(state)
+
+        // 알림이 막혀 있으면 기다릴 것도 없다. 위의 비교가 이미 맴돌기를 막지만 왜 걸지 않는지는
+        // 이쪽이 말한다. 토글을 다시 켜면 `1분 tick`이 밀린 재알림을 집어 올린다.
+        if (!alertsAllowed(session, settings)) return Reduction(state)
+
+        return Reduction(state, listOf(SessionEffect.ScheduleReAlert(atMillis)))
     }
 
     /**
@@ -274,6 +331,45 @@ object SessionReducer {
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + settings.reAlertIntervalMillis),
             ),
         )
+    }
+
+    /**
+     * 이 세션에 임계값 알림·재알림을 보내도 되는지(스펙 4절 발송 조건 중 세션·설정 몫).
+     *
+     * 둘 다 알림만 막고 측정과 상시 표시는 그대로 둔다. 토글이 꺼져 있어도 상시 표시의 초과 표기와
+     * 경고색은 유지된다(스펙 4절).
+     *
+     * 토글은 저장 즉시 적용된다(스펙 3절 설정 변경 중 동작). 꺼진 동안 임계값을 넘겨도 알림 상태를
+     * 적지 않으므로, 세션 중에 다시 켜면 다음 판정에서 첫 임계값 알림이 나간다. 세션 알림 끄기는
+     * 반대로 세션에 새겨져 세션이 닫힐 때까지 풀리지 않는다.
+     */
+    private fun alertsAllowed(session: Session, settings: TrackingSettings): Boolean =
+        settings.thresholdAlertEnabled && !session.muted
+
+    /**
+     * 알림이 막힌 채 임계값을 넘긴 순간의 상시 표시 갱신, 아니면 null.
+     *
+     * 임계값 알림 토글이 꺼져 있거나 세션 알림 끄기 뒤라 알림은 나가지 않지만, 상시 표시의 초과
+     * 표기와 경고색은 토글과 무관하게 그대로다(스펙 4절). 알림이 나가는 쪽은 게시와 같은 자리에서
+     * 상시 표시를 초과로 바꾸므로([thresholdAlert]), 막힌 쪽에도 같은 순간을 준다. 그러지 않으면
+     * 토글 하나로 초과 표기가 최대 1분 늦어져, "제목의 초과와 경고색은 함께 움직인다"는 4절의
+     * 경고색 규칙이 토글에 따라 달라진다.
+     *
+     * 아직 임계값 전이면 여기 오지 않는다. 다시 그릴 것이 바뀌지 않았다. 알림을 이미 보낸 세션을
+     * 끈 뒤에는 올 수 있지만, 그때는 [muteSession]이 이미 같은 내용으로 그려 둔 뒤라 이 갱신이
+     * 화면을 바꾸지 않는다.
+     */
+    private fun repaintSuppressedThreshold(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction? {
+        if (state.phase != Phase.Active) return null
+        val session = state.openSession()
+        if (alertsAllowed(session, settings)) return null
+        if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
+
+        return refreshPersistentDisplay(state, nowMillis, settings)
     }
 
     /**
@@ -335,12 +431,32 @@ object SessionReducer {
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val content = when (state.phase) {
-            Phase.Active -> activeContent(state.openSession(), nowMillis, settings)
-            Phase.Grace -> graceContent(state.openSession(), nowMillis, settings)
-            Phase.Off, Phase.Idle -> return Reduction(state)
-        }
-        return Reduction(state, listOf(SessionEffect.UpdatePersistentDisplay(content)))
+        val session = state.session ?: return Reduction(state)
+        return Reduction(
+            state,
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(
+                    openContent(state.phase, session, nowMillis, settings),
+                ),
+            ),
+        )
+    }
+
+    /**
+     * 열린 세션의 상시 표시 내용. 국면이 본문을 가르는 유일한 자리다(스펙 4절 표).
+     *
+     * 여기 오는 국면은 세션 진행과 유예 중뿐이다. 열린 세션이 있다는 것이 곧 그 둘 중 하나라는
+     * 뜻이기 때문이다([SessionState]의 불변식).
+     */
+    private fun openContent(
+        phase: Phase,
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): PersistentDisplayContent.Open = if (phase == Phase.Grace) {
+        graceContent(session, nowMillis, settings)
+    } else {
+        activeContent(session, nowMillis, settings)
     }
 
     /**
@@ -403,6 +519,7 @@ object SessionReducer {
         elapsedMinutes = elapsedMinutes(session, nowMillis),
         thresholdMinutes = settings.thresholdMinutes,
         nextAlertMinutes = nextAlertMinutes(session, nowMillis, settings),
+        muted = session.muted,
     )
 
     /**
@@ -415,6 +532,10 @@ object SessionReducer {
      * 쪽이 거의 비어 있다. 잠금 중에는 알림이 나가지 않아(스펙 4절) 유예를 지나며 주기가 지날 수
      * 있고, 그 세션이 잠금 해제로 돌아온 자리가 남는다(#26).
      *
+     * 알림이 막혀 있으면([alertsAllowed]) 예고할 다음 알림 자체가 없어 null이다. 스펙 4절 표가 토글
+     * 꺼짐의 초과 본문을 "임계값 30분 초과"로 정한 자리이고, 세션 알림 끄기는 그 자리에
+     * "이번 세션 알림 꺼짐"을 적는다.
+     *
      * 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
      */
     private fun nextAlertMinutes(
@@ -422,6 +543,7 @@ object SessionReducer {
         nowMillis: Long,
         settings: TrackingSettings,
     ): Int? {
+        if (!alertsAllowed(session, settings)) return null
         val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
         val remainingMillis = lastAlertAtMillis + settings.reAlertIntervalMillis - nowMillis
         if (remainingMillis <= 0) return null

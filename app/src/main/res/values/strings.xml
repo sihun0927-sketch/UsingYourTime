@@ -11,6 +11,7 @@
     <string name="persistent_display_title_exceeded">연속 사용 중 · 임계값 %1$d분 초과</string>
     <string name="persistent_display_body_next_alert">다음 알림 %1$d분 후</string>
     <string name="persistent_display_body_exceeded">임계값 %1$d분 초과</string>
+    <string name="persistent_display_body_muted">임계값 초과 · 이번 세션 알림 꺼짐</string>
     <string name="persistent_display_title_idle">측정 대기 중</string>
     <string name="persistent_display_body_idle">잠금 해제하면 세션이 시작돼요</string>
 
@@ -21,6 +22,7 @@
     <string name="threshold_alert_body_first">잠깐 눈을 쉬어 주세요. 계속 쓰면 %1$d분 뒤 다시 알려요.</string>
     <string name="threshold_alert_body_re_alert">%1$d분 뒤 다시 알려요</string>
     <string name="threshold_alert_subtext_count">%1$d번째</string>
+    <string name="threshold_alert_action_mute">이번 세션 알림 끄기</string>
 
     <!-- 상태 카드 (스펙 5절) -->
     <string name="status_card_tracking_label">측정 상태</string>
@@ -32,6 +34,7 @@
     <string name="status_card_off_description">잠금 해제한 뒤 계속 사용한 시간을 상태바에 보여주고, 정한 시간이 지나면 알려드려요.</string>
     <string name="status_card_notification_permission_required">연속 사용 시간을 상태바에 보여주려면 알림 권한이 필요해요</string>
     <string name="status_card_notification_permission_denied">알림 권한이 꺼져 있어 측정을 시작할 수 없어요 · 설정에서 켜기</string>
+    <string name="status_card_muted">이번 세션 알림 꺼짐</string>
     <string name="status_card_lock_screen_absent">잠금 화면이 없어 화면이 켜진 시간을 기준으로 측정합니다</string>
     <string name="action_start_tracking">측정 시작</string>
     <string name="action_pause">측정 중지</string>
@@ -52,6 +55,8 @@
     <string name="setting_re_alert_label">재알림 주기</string>
     <string name="setting_re_alert_description">임계값을 넘긴 뒤에도 계속 쓰면 이 주기마다 다시 알려드려요. 알림을 지워도 다음 주기에 다시 와요.</string>
     <string name="setting_minutes_chip">%1$d분</string>
+    <string name="setting_threshold_alert_label">임계값 알림</string>
+    <string name="setting_threshold_alert_description">임계값에 닿으면 소리·진동으로 알려드려요. 끄면 상태바의 상시 표시만 남아요.</string>
 
     <!-- 개인정보처리방침 행 (스펙 5절) -->
     <string name="privacy_policy">개인정보처리방침</string>

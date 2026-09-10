@@ -77,9 +77,11 @@ class PersistentDisplay(private val context: Context) {
     /**
      * 세션 진행 중 본문(스펙 4절 표). 임계값 전에는 남은 시간을, 넘긴 뒤에는 다음 알림 예고를 적는다.
      *
-     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 유예 안에 임계값을 넘긴 세션이 잠금
-     * 해제로 돌아온 직후(그 자리에서 알리는 일은 #26), 그리고 재알림이 아직 없어 주기가 지나가
-     * 버린 동안(#24)이 그렇다. 스펙 4절이 임계값 알림 토글을 끈 초과에 준 문구와 같은 자리다.
+     * 세션 알림 끄기 뒤에는 그 사실을 적는다. 알림이 멈춘 것이지 측정이 멈춘 것이 아니라는 말이
+     * 필요한 자리다(스펙 4절 표).
+     *
+     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 임계값 알림 토글을 끈 동안, 그리고 유예
+     * 안에 임계값을 넘긴 세션이 잠금 해제로 돌아온 직후(그 자리에서 알리는 일은 #26)가 그렇다.
      * 결정 배경은 `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
      */
     private fun activeBody(content: PersistentDisplayContent.Active): String = when {
@@ -88,6 +90,8 @@ class PersistentDisplay(private val context: Context) {
             content.thresholdMinutes,
             (content.thresholdMinutes - content.elapsedMinutes).coerceAtLeast(0),
         )
+
+        content.muted -> context.getString(R.string.persistent_display_body_muted)
 
         content.nextAlertMinutes != null -> context.getString(
             R.string.persistent_display_body_next_alert,

@@ -22,6 +22,14 @@ object TrackingStatus {
     /** 열린 세션의 시작 시각. 세션이 없거나 서비스가 이 프로세스에 없으면 null. */
     val sessionStartedAtMillis: StateFlow<Long?> = openSessionStartedAtMillis.asStateFlow()
 
+    private val openSessionMuted = MutableStateFlow(false)
+
+    /**
+     * 열린 세션이 세션 알림 끄기 상태인지(스펙 5절 상태 카드 안내 줄). 세션에 속한 값이라 세션이
+     * 닫히면 함께 거짓으로 돌아간다.
+     */
+    val muted: StateFlow<Boolean> = openSessionMuted.asStateFlow()
+
     private val lockScreenAbsentState = MutableStateFlow(false)
 
     /**
@@ -37,6 +45,7 @@ object TrackingStatus {
     /** [TrackingService]만 부른다. 리듀서가 상태를 바꾼 직후 메인 스레드에서. */
     internal fun publish(state: SessionState) {
         openSessionStartedAtMillis.value = state.session?.startedAtMillis
+        openSessionMuted.value = state.session?.muted == true
     }
 
     /** [TrackingService]만 부른다. `ACTION_SCREEN_ON`마다 다시 판정한 결과다(스펙 5절). */

@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.sihun0927.usingyourtime.notification.ACTION_MUTE_SESSION
 import io.github.sihun0927.usingyourtime.notification.PersistentDisplay
 import io.github.sihun0927.usingyourtime.notification.ThresholdAlert
 import io.github.sihun0927.usingyourtime.session.PersistentDisplayContent
@@ -102,8 +103,9 @@ class TrackingService : Service() {
     private var reAlertTimer: Job? = null
 
     /**
-     * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기. manifest로는 받을 수 없어 서비스가 살아 있는
-     * 동안만 런타임 등록한다(스펙 8절).
+     * 잠금·잠금 해제·화면 켜짐과 유예 만료 깨우기, 그리고 임계값 알림의 "이번 세션 알림 끄기"
+     * 버튼. manifest로는 받을 수 없어 서비스가 살아 있는 동안만 런타임 등록한다(스펙 8절).
+     * 끌 세션은 서비스가 들고 있으므로 서비스가 없으면 버튼을 눌러도 받을 곳이 없는 것이 맞다.
      *
      * `ACTION_SCREEN_ON`만 화면이 켜진 직후의 잠금 상태를 읽어 간다. 그 자리에서 답해야 하는
      * 질문이 둘이기 때문이다(스펙 5절, ADR 0002).
@@ -135,6 +137,7 @@ class TrackingService : Service() {
                 }
 
                 GraceExpiryAlarm.ACTION -> SessionEvent.GraceExpired
+                ACTION_MUTE_SESSION -> SessionEvent.MuteSession
                 else -> return
             }
             dispatch(event)
@@ -216,6 +219,7 @@ class TrackingService : Service() {
             is SessionEffect.SaveLockedAt -> sessionDao.saveLockedAt(effect.lockedAtMillis)
             is SessionEffect.CloseSession -> sessionDao.close(effect.endedAtMillis, effect.reason)
             is SessionEffect.SaveAlertState -> sessionDao.saveAlerts(effect.alerts)
+            is SessionEffect.SaveMuted -> sessionDao.saveMuted(effect.muted)
             is SessionEffect.ScheduleGraceExpiry -> scheduleGraceExpiry(effect.atMillis)
             SessionEffect.CancelGraceExpiry -> cancelGraceExpiry()
             is SessionEffect.PostThresholdAlert -> postThresholdAlert(effect.content)
@@ -297,6 +301,7 @@ class TrackingService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(GraceExpiryAlarm.ACTION)
+            addAction(ACTION_MUTE_SESSION)
         }
         ContextCompat.registerReceiver(this, eventReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }

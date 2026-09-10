@@ -26,11 +26,10 @@ import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 /**
  * 설정 화면(스펙 5절). 앱의 유일한 화면이다. Scaffold가 edge-to-edge 인셋을 처리한다.
  *
- * 위에서부터 상태 카드, 설정, 개인정보처리방침 행이다. 나머지 설정(임계값 알림 토글)과 도움말
- * 섹션은 각 티켓에서 채운다.
+ * 위에서부터 상태 카드, 설정, 개인정보처리방침 행이다. 도움말 섹션은 #29에서 채운다.
  *
- * 상태 카드와 설정은 함께 스크롤하고, 개인정보처리방침 행만 아래에 붙어 있다. 설정 항목이 셋으로
- * 늘면서 작은 화면에는 이미 한 번에 들어가지 않고, 남은 항목과 도움말 섹션이 더 들어올 자리다.
+ * 상태 카드와 설정은 함께 스크롤하고, 개인정보처리방침 행만 아래에 붙어 있다. 설정 항목이 넷으로
+ * 늘어 작은 화면에는 한 번에 들어가지 않고, 도움말 섹션이 더 들어올 자리다.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,15 +37,18 @@ fun SettingsScreen(
     trackingOn: Boolean,
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
+    muted: Boolean,
     lockScreenAbsent: Boolean,
     thresholdMinutes: Int,
     graceMinutes: Int,
     reAlertMinutes: Int,
+    thresholdAlertEnabled: Boolean,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
     onThresholdMinutesChange: (Int) -> Unit,
     onGraceMinutesChange: (Int) -> Unit,
     onReAlertMinutesChange: (Int) -> Unit,
+    onThresholdAlertEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -59,6 +61,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            // 상태 카드와 설정만 스크롤한다. 개인정보처리방침 행은 스펙 5절의 마지막 항목이라
+            // 아래에 고정으로 붙여 둔다. 항목이 늘어도(#29 도움말) 화면 밖으로 밀려나지 않는다.
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -68,6 +72,7 @@ fun SettingsScreen(
                     trackingOn = trackingOn,
                     sessionStartedAtMillis = sessionStartedAtMillis,
                     notificationPermission = notificationPermission,
+                    muted = muted,
                     lockScreenAbsent = lockScreenAbsent,
                     onStartTracking = onStartTracking,
                     onPause = onPause,
@@ -86,6 +91,11 @@ fun SettingsScreen(
                 ReAlertSetting(
                     reAlertMinutes = reAlertMinutes,
                     onReAlertMinutesChange = onReAlertMinutesChange,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                )
+                ThresholdAlertSetting(
+                    thresholdAlertEnabled = thresholdAlertEnabled,
+                    onThresholdAlertEnabledChange = onThresholdAlertEnabledChange,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                 )
             }
@@ -110,15 +120,18 @@ private fun SettingsScreenOffPreview() {
             trackingOn = false,
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
+            muted = false,
             lockScreenAbsent = false,
             thresholdMinutes = 30,
             graceMinutes = 3,
             reAlertMinutes = 15,
+            thresholdAlertEnabled = true,
             onStartTracking = {},
             onPause = {},
             onThresholdMinutesChange = {},
             onGraceMinutesChange = {},
             onReAlertMinutesChange = {},
+            onThresholdAlertEnabledChange = {},
         )
     }
 }
@@ -131,15 +144,18 @@ private fun SettingsScreenOnPreview() {
             trackingOn = true,
             sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * 1_000L,
             notificationPermission = NotificationPermission.Granted,
+            muted = false,
             lockScreenAbsent = false,
             thresholdMinutes = 30,
             graceMinutes = 3,
             reAlertMinutes = 15,
+            thresholdAlertEnabled = true,
             onStartTracking = {},
             onPause = {},
             onThresholdMinutesChange = {},
             onGraceMinutesChange = {},
             onReAlertMinutesChange = {},
+            onThresholdAlertEnabledChange = {},
         )
     }
 }
