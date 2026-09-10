@@ -13,13 +13,17 @@ sealed interface SessionEvent {
     /** 사용자가 "측정 중지"를 눌렀다. */
     data object Pause : SessionEvent
 
-    /** `ACTION_USER_PRESENT`. 잠금이 풀렸다. */
+    /**
+     * 잠금이 풀렸다. `ACTION_USER_PRESENT`, 또는 `ACTION_SCREEN_ON` 직후 잠금 화면이 없다는
+     * 판정(스펙 3절 이벤트 표). 잠금 화면이 '없음'인 기기에는 `ACTION_USER_PRESENT`를 보낼
+     * 주체가 없어 서비스가 화면 켜짐을 이 이벤트로 옮긴다(ADR 0002).
+     */
     data object Unlock : SessionEvent
 
     /** `ACTION_SCREEN_OFF`. 화면이 꺼졌다. */
     data object Lock : SessionEvent
 
-    /** `ACTION_SCREEN_ON`. 잠금 해제 없이 잠금 화면만 켜졌다. */
+    /** `ACTION_SCREEN_ON` + 아직 잠겨 있음. 잠금 해제 없이 잠금 화면만 켜졌다. */
     data object ScreenOn : SessionEvent
 
     /** 유예 만료 타이머나 알람이 깨웠다. 늦게 와도 되도록 리듀서가 잠금 시각으로 다시 판정한다. */

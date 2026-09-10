@@ -80,7 +80,7 @@ class PersistentDisplay(private val context: Context) {
      * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 유예 안에 임계값을 넘긴 세션이 잠금
      * 해제로 돌아온 직후(그 자리에서 알리는 일은 #26), 그리고 재알림이 아직 없어 주기가 지나가
      * 버린 동안(#24)이 그렇다. 스펙 4절이 임계값 알림 토글을 끈 초과에 준 문구와 같은 자리다.
-     * 결정 배경은 `docs/adr/0002-persistent-display-body-when-no-next-alert.md`.
+     * 결정 배경은 `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
      */
     private fun activeBody(content: PersistentDisplayContent.Active): String = when {
         !content.exceeded -> context.getString(

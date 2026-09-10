@@ -31,7 +31,7 @@ sealed interface PersistentDisplayContent {
          * 다음 임계값 알림까지 남은 분. 초과 상태의 본문 "다음 알림 N분 후"가 된다.
          *
          * 예고할 다음 알림이 없으면(아직 알린 적이 없거나 그 시각이 이미 지났으면) null이고,
-         * 그때 초과 본문은 사실만 적는다. `docs/adr/0002-persistent-display-body-when-no-next-alert.md`.
+         * 그때 초과 본문은 사실만 적는다. `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
          */
         val nextAlertMinutes: Int? = null,
     ) : Open
