@@ -44,13 +44,8 @@ object SessionReducer {
 
         // 임계값이나 재알림 주기를 이미 지난 값으로 낮췄으면 이 tick이 곧 그 깨우기다(스펙 3절
         // 설정 변경 중 동작). 걸어 둔 깨우기는 옛 값으로 잡혀 있어 아직 오지 않기 때문이다.
-        //
-        // 첫 알림이 이 자리에서 나갔으면 재알림은 건너뛴다. 방금 보낸 알림이 곧 직전 알림이라
-        // 주기가 지났을 리 없다.
         SessionEvent.MinuteTick -> closeExpiredGrace(state, nowMillis, settings)
-            ?: thresholdAlert(state, nowMillis, settings)
-            ?: reAlert(state, nowMillis, settings)
-            ?: refreshPersistentDisplay(state, nowMillis, settings)
+            ?: alertOrRepaint(state, nowMillis, settings)
     }
 
     /** 측정 꺼짐 → 세션 진행. 버튼을 누른 시점은 잠금 해제 상태이므로 **지금** 세션을 연다. */
@@ -102,15 +97,7 @@ object SessionReducer {
         Phase.Grace -> {
             val session = state.openSession()
             if (gracePeriodRemains(session, nowMillis, settings)) {
-                val resumed = session.copy(lockedAtMillis = null)
-                Reduction(
-                    state = SessionState(Phase.Active, resumed),
-                    effects = listOf(
-                        SessionEffect.UpdatePersistentDisplay(activeContent(resumed, nowMillis, settings)),
-                        SessionEffect.SaveLockedAt(lockedAtMillis = null),
-                        SessionEffect.CancelGraceExpiry,
-                    ),
-                )
+                continueSession(session, nowMillis, settings)
             } else {
                 startNewSession(
                     nowMillis = nowMillis,
@@ -123,6 +110,58 @@ object SessionReducer {
 
         Phase.Off, Phase.Active -> Reduction(state)
     }
+
+    /**
+     * 유예 중 → 세션 진행. 유예 안에 잠금 해제되어 **같은 세션이 이어진다**(전이표, `CONTEXT.md`
+     * 연속 사용 세션). 측정을 다시 켜는 것이 아니라 열려 있던 세션을 그대로 잇는 자리다.
+     *
+     * 잠금 중에는 임계값 알림·재알림을 **절대** 보내지 않으므로(스펙 3·4절) 유예를 지나며 넘긴
+     * 임계값과 지나간 재알림 주기가 여기에 밀려 있다. 전이표가 이 칸에 "즉시 판정"을 적어 둔
+     * 자리이고, 판정은 잠긴 적 없는 세션 진행에서 하는 것과 같다([alertOrRepaint]를 지금 시각으로
+     * **한 번**). 그 한 번이 곧 전이표의 "밀린 횟수 몰아 보내기 없음"이다. 주기가 유예 중에 두 번
+     * 지났어도 판정이 한 번이라 알림도 한 번이고, [postAlert]가 직전 알림 시각을 지금으로 옮기며
+     * 재알림 타이머를 그 알림부터 다시 건다.
+     *
+     * 연속 사용 시간이 유예 구간을 포함하므로(스펙 3절) 잠긴 동안 임계값을 넘겼다는 사실은 그
+     * 판정에 이미 들어 있다. 알림이 막힌 세션(세션 알림 끄기·임계값 알림 토글 꺼짐)은 판정에
+     * 걸리지 않아 잠금 해제도 조용하다.
+     *
+     * 잠금 시각 지우기와 유예 만료 깨우기 취소는 판정 결과와 무관하게 늘 낸다. 알림 효과보다
+     * 뒤에 두어, 상시 표시와 임계값 알림이 앞선 저장을 기다리지 않게 한다.
+     */
+    private fun continueSession(
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val continued = SessionState(Phase.Active, session.copy(lockedAtMillis = null))
+        val reduction = alertOrRepaint(continued, nowMillis, settings)
+
+        return reduction.copy(
+            effects = reduction.effects + listOf(
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
+            ),
+        )
+    }
+
+    /**
+     * 지금 보낼 알림이 있으면 보내고, 없으면 상시 표시만 다시 그린다.
+     *
+     * 첫 알림이 재알림보다 앞이다. 아직 알린 적 없는 세션에는 [reAlert]가 셀 기준점이 없어 어차피
+     * null이고, 첫 알림이 이 자리에서 나갔으면 방금 보낸 것이 곧 직전 알림이라 주기가 지났을 리
+     * 없다. 그래서 한 번의 판정에서 알림은 많아야 하나다.
+     *
+     * 밀린 알림을 갚는 자리가 둘이라 차례를 여기 한 번만 적는다. `1분 tick`과 유예 안 잠금
+     * 해제([continueSession])가 어느 쪽에서 갚든 결과가 같아야 하기 때문이다.
+     */
+    private fun alertOrRepaint(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction = thresholdAlert(state, nowMillis, settings)
+        ?: reAlert(state, nowMillis, settings)
+        ?: refreshPersistentDisplay(state, nowMillis, settings)
 
     /**
      * 세션 진행 → 유예 중. 잠금 시각을 남기고 유예가 끝날 시각에 깨우도록 예약한다.
@@ -206,9 +245,9 @@ object SessionReducer {
      * 세션의 `muted == false`([alertsAllowed]), 그리고 이 세션에서 아직 알린 적이 없어야 한다.
      * 뒤의 두 조건은 [reAlert]도 같이 본다.
      *
-     * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
-     * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
-     * 왔든 판정은 연속 사용 시간이 하므로 결과가 같다.
+     * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그렇게
+     * 밀린 알림은 다음 잠금 해제가 [continueSession]에서 1회만 판정한다. 걸어 둔 깨우기가 늦게 왔든
+     * 이르게 왔든 판정은 연속 사용 시간이 하므로 결과가 같다.
      */
     private fun thresholdAlert(
         state: SessionState,
@@ -274,7 +313,7 @@ object SessionReducer {
      * 깨울 것이 남지 않아 `1분 tick`이 메울 때까지 밀린다([rescheduleGraceExpiry]와 같은 자리다).
      *
      * 셀 기준점이 없으면(세션이 닫혔거나 잠겼거나 아직 알린 적이 없다) 걸 시각도 없다. 잠금 중에
-     * 밀린 알림은 다음 잠금 해제 직후에 판정한다(#26).
+     * 밀린 알림은 다음 잠금 해제가 판정한다([continueSession]).
      */
     private fun rescheduleReAlert(
         state: SessionState,
@@ -306,8 +345,9 @@ object SessionReducer {
      * 찬 막대·경고색이 알림과 함께 움직여야 한다, 스펙 4절 경고색 규칙), 본문의 "다음 알림 N분 후"가
      * 방금 옮긴 기준점에서 다시 세어져야 하기 때문이다.
      *
-     * 다음 재알림 예약이 마지막 효과다. 알림이 나간 시각에서 주기를 재므로 앞의 효과가 무엇이든
-     * 결과가 같지만, 걸 시각을 이 전이가 이미 정해 두었다는 것이 순서로도 보인다.
+     * 다음 재알림 예약이 이 전이가 내는 마지막 효과다. 알림이 나간 시각에서 주기를 재므로 앞의
+     * 효과가 무엇이든 결과가 같지만, 걸 시각을 이 전이가 이미 정해 두었다는 것이 순서로도 보인다.
+     * 유예 안 잠금 해제는 이 뒤에 세션을 잇는 효과를 더 붙인다([continueSession]).
      */
     private fun postAlert(
         session: Session,
@@ -528,9 +568,11 @@ object SessionReducer {
      * 다음 알림은 직전 알림 시각으로부터 재알림 주기 뒤다. 셀 기준점이 없거나(이 세션에서 아직
      * 알린 적이 없다) 그 시각이 이미 지났으면 null이고, 그때 본문은 초과했다는 사실만 적는다.
      *
-     * 세션 진행 중에는 주기가 지나는 순간 재알림이 나가면서 기준점이 옮겨지므로 "이미 지났다"는
-     * 쪽이 거의 비어 있다. 잠금 중에는 알림이 나가지 않아(스펙 4절) 유예를 지나며 주기가 지날 수
-     * 있고, 그 세션이 잠금 해제로 돌아온 자리가 남는다(#26).
+     * "이미 지났다"는 쪽에 닿는 길은 지금 [reduce]에 없다. 알림이 나가는 세션은 주기가 지나는
+     * 순간 [reAlert]가 기준점을 옮기고, 잠금 중에 밀린 주기도 [continueSession]이 갚기 때문이다.
+     * 그래서 이 분기에는 테스트가 없다. 그래도 남겨 둔다. 이 값의 뜻이 "예고할 다음 알림까지 남은
+     * 분"이라 0이나 음수는 값이 아니고, ADR 0003이 "다음 알림 0분 후"를 오지 않을 알림을 예고하는
+     * 거짓말이라며 이미 물린 자리다.
      *
      * 알림이 막혀 있으면([alertsAllowed]) 예고할 다음 알림 자체가 없어 null이다. 스펙 4절 표가 토글
      * 꺼짐의 초과 본문을 "임계값 30분 초과"로 정한 자리이고, 세션 알림 끄기는 그 자리에
