@@ -280,7 +280,14 @@ class TrackingService : Service() {
         }
     }
 
-    /** 상시 표시는 포그라운드 서비스의 알림이라 갱신도 `startForeground`로 한다. */
+    /**
+     * 상시 표시는 포그라운드 서비스의 알림이라 갱신도 `startForeground`로 한다.
+     *
+     * 재게시도 이 한 줄이다. Android 14+는 ongoing 알림도 스와이프로 지울 수 있고(스펙 8절 표),
+     * 지워진 알림에 같은 id로 다시 게시하면 그대로 돌아온다. `1분 tick`이 측정이 켜진 세 국면
+     * (세션 없음·세션 진행·유예 중) 모두에서 상시 표시 효과를 내므로(스펙 4절, [SessionReducer])
+     * 늦어도 1분 안에 되살아난다. 지워졌는지 묻는 코드도, 재게시 전용 경로도 없다.
+     */
     private fun showPersistentDisplay(content: PersistentDisplayContent) {
         ServiceCompat.startForeground(
             this,

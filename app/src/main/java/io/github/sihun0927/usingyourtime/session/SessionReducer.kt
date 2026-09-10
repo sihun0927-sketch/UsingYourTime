@@ -694,15 +694,26 @@ object SessionReducer {
     /**
      * `1분 tick`. 열린 세션이 있으면 상시 표시를 다시 그린다. 유예 중이면 남은 유예까지.
      *
-     * 세션 없음의 상시 표시는 문구가 고정이라 다시 그릴 것이 없다. 스와이프로 지워진 상시 표시를
-     * 다시 게시하는 일은 티켓 #29가 맡는다.
+     * 세션 없음의 문구는 고정이라 바뀔 것이 없는데도 같은 내용을 다시 낸다. Android 14+에서
+     * 사용자가 스와이프로 지운 상시 표시가 다시 올라오는 길이 이 갱신뿐이기 때문이다
+     * (스펙 4절 "다음 갱신(`1분 tick`)에 다시 게시한다",
+     * `docs/adr/0005-minute-tick-reposts-the-idle-persistent-display.md`).
+     *
+     * 측정 꺼짐에는 낼 것이 없다. 게시할 상시 표시가 애초에 없고, 서비스도 없거나 내려가는 중이다.
      */
     private fun refreshPersistentDisplay(
         state: SessionState,
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val session = state.session ?: return Reduction(state)
+        val session = state.session ?: return when (state.phase) {
+            Phase.Idle -> Reduction(
+                state,
+                listOf(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle)),
+            )
+
+            else -> Reduction(state)
+        }
         return Reduction(
             state,
             listOf(

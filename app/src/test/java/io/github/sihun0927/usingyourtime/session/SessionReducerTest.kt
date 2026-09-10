@@ -401,10 +401,21 @@ class SessionReducerTest {
     }
 
     @Test
-    fun `세션 없음에서 1분 tick은 다시 그릴 것이 없다`() {
+    fun `세션 없음에서 1분 tick은 대기 문구를 다시 게시한다`() {
         assertEquals(
-            Reduction(SessionState.Idle),
+            Reduction(
+                SessionState.Idle,
+                listOf(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle)),
+            ),
             reduce(SessionState.Idle, SessionEvent.MinuteTick),
+        )
+    }
+
+    @Test
+    fun `측정 꺼짐에서 1분 tick이 와도 게시할 상시 표시가 없다`() {
+        assertEquals(
+            Reduction(SessionState.Off),
+            reduce(SessionState.Off, SessionEvent.MinuteTick),
         )
     }
 
