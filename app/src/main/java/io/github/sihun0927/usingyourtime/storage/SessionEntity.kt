@@ -9,7 +9,7 @@ import io.github.sihun0927.usingyourtime.session.SessionEndReason
 /**
  * Room `sessions` 한 행(스펙 8절). 시각은 모두 epoch 밀리초다.
  *
- * 열린 세션은 `ended_at`이 null인 행이고 항상 최대 1개다. 알림 관련 열은 이후 티켓(#23~#25)이
+ * 열린 세션은 `ended_at`이 null인 행이고 항상 최대 1개다. `muted`는 세션 알림 끄기 티켓(#25)이
  * 채우므로 지금은 기본값으로만 들어간다.
  */
 @Entity(tableName = "sessions")

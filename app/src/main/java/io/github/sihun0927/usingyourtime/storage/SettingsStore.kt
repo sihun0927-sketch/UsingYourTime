@@ -17,7 +17,7 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 /**
  * 스펙 8절의 DataStore 키를 읽고 쓴다.
  *
- * 임계값·재알림 주기·임계값 알림 토글·재시작 안내는 이후 티켓(#23~#28)에서 들어온다.
+ * 재알림 주기·임계값 알림 토글·재시작 안내는 이후 티켓(#24·#25·#28)에서 들어온다.
  */
 class SettingsStore(context: Context) {
 
@@ -31,11 +31,18 @@ class SettingsStore(context: Context) {
      * (스펙 3절 설정 변경 중 동작).
      */
     val settings: Flow<TrackingSettings> = dataStore.data.map { preferences ->
-        DEFAULTS.copy(graceMinutes = preferences[GRACE_MIN] ?: DEFAULTS.graceMinutes)
+        DEFAULTS.copy(
+            thresholdMinutes = preferences[THRESHOLD_MIN] ?: DEFAULTS.thresholdMinutes,
+            graceMinutes = preferences[GRACE_MIN] ?: DEFAULTS.graceMinutes,
+        )
     }
 
     suspend fun setTrackingOn(trackingOn: Boolean) {
         dataStore.edit { it[TRACKING_ON] = trackingOn }
+    }
+
+    suspend fun setThresholdMinutes(thresholdMinutes: Int) {
+        dataStore.edit { it[THRESHOLD_MIN] = thresholdMinutes }
     }
 
     suspend fun setGraceMinutes(graceMinutes: Int) {
@@ -47,6 +54,7 @@ class SettingsStore(context: Context) {
         val DEFAULTS = TrackingSettings()
 
         val TRACKING_ON = booleanPreferencesKey("tracking_on")
+        val THRESHOLD_MIN = intPreferencesKey("threshold_min")
         val GRACE_MIN = intPreferencesKey("grace_min")
     }
 }

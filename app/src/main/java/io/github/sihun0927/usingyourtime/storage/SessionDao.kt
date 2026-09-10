@@ -3,6 +3,7 @@ package io.github.sihun0927.usingyourtime.storage
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import io.github.sihun0927.usingyourtime.session.AlertState
 import io.github.sihun0927.usingyourtime.session.SessionEndReason
 
 /**
@@ -31,6 +32,19 @@ interface SessionDao {
 
     @Query("UPDATE sessions SET locked_at = :lockedAtMillis WHERE id = $OPEN_SESSION_ID")
     suspend fun saveLockedAt(lockedAtMillis: Long?)
+
+    @Query(
+        "UPDATE sessions SET threshold_alerted_at = :thresholdAlertedAtMillis, " +
+            "last_alert_at = :lastAlertAtMillis, alert_count = :count WHERE id = $OPEN_SESSION_ID",
+    )
+    suspend fun saveAlerts(thresholdAlertedAtMillis: Long?, lastAlertAtMillis: Long?, count: Int)
+
+    /** 열린 세션 행의 알림 상태를 [alerts]로 덮어쓴다. 세션이 이어질 때 함께 복원된다(스펙 7절). */
+    suspend fun saveAlerts(alerts: AlertState) = saveAlerts(
+        thresholdAlertedAtMillis = alerts.thresholdAlertedAtMillis,
+        lastAlertAtMillis = alerts.lastAlertAtMillis,
+        count = alerts.count,
+    )
 
     @Query(
         "UPDATE sessions SET ended_at = :endedAtMillis, end_reason = :reason " +

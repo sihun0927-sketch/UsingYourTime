@@ -33,7 +33,12 @@ object SessionReducer {
         SessionEvent.GraceExpired -> closeExpiredGrace(state, nowMillis, settings)
             ?: rescheduleGraceExpiry(state, nowMillis, settings)
 
+        SessionEvent.ThresholdReached -> thresholdAlert(state, nowMillis, settings) ?: Reduction(state)
+
+        // 임계값을 이미 지난 값으로 낮췄으면 이 tick이 곧 `임계값 도달`이다(스펙 3절 설정 변경 중
+        // 동작). 걸어 둔 깨우기는 이미 지나가 버렸기 때문이다.
         SessionEvent.MinuteTick -> closeExpiredGrace(state, nowMillis, settings)
+            ?: thresholdAlert(state, nowMillis, settings)
             ?: refreshPersistentDisplay(state, nowMillis, settings)
     }
 
@@ -60,6 +65,7 @@ object SessionReducer {
         effects = buildList {
             if (state.session != null) {
                 add(SessionEffect.CloseSession(nowMillis, SessionEndReason.PAUSED))
+                if (state.session.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
             }
             add(SessionEffect.SaveTrackingOn(trackingOn = false))
             if (state.phase == Phase.Grace) add(SessionEffect.CancelGraceExpiry)
@@ -125,11 +131,11 @@ object SessionReducer {
         if (settings.gracePeriodMillis == 0L) {
             return Reduction(
                 state = SessionState.Idle,
-                effects = listOf(
-                    SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
-                    closeExpiredSession(locked),
-                    SessionEffect.CancelGraceExpiry,
-                ),
+                effects = buildList {
+                    add(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle))
+                    addAll(closeExpiredSession(locked))
+                    add(SessionEffect.CancelGraceExpiry)
+                },
             )
         }
 
@@ -139,6 +145,52 @@ object SessionReducer {
                 SessionEffect.UpdatePersistentDisplay(graceContent(locked, nowMillis, settings)),
                 SessionEffect.SaveLockedAt(lockedAtMillis = nowMillis),
                 SessionEffect.ScheduleGraceExpiry(atMillis = nowMillis + settings.gracePeriodMillis),
+            ),
+        )
+    }
+
+    /**
+     * 지금 임계값 알림을 보낼 상황이면 그 전이, 아니면 null.
+     *
+     * 발송 조건은 스펙 4절이다. 세션 진행 상태이고, 연속 사용 시간이 임계값에 닿았고, 이 세션에서
+     * 아직 알린 적이 없어야 한다. 재알림은 #24, 임계값 알림 토글과 세션 알림 끄기는 #25에서 이
+     * 조건에 더해진다.
+     *
+     * 잠금 중에는 임계값 알림을 **절대** 보내지 않으므로(스펙 3절) 유예 중이면 null이다. 그때 밀린
+     * 알림을 다음 잠금 해제 직후 1회만 보내는 일은 #26이 맡는다. 걸어 둔 깨우기가 늦게 왔든 이르게
+     * 왔든 판정은 연속 사용 시간이 하므로 결과가 같다.
+     *
+     * 상시 표시가 같은 자리에서 초과 상태로 바뀐다. 제목의 "초과"·가득 찬 막대·경고색이 알림과 함께
+     * 움직여야 하기 때문이다(스펙 4절 경고색 규칙).
+     */
+    private fun thresholdAlert(
+        state: SessionState,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction? {
+        if (state.phase != Phase.Active) return null
+        val session = state.openSession()
+        if (session.alerts.alerted) return null
+        if (nowMillis - session.startedAtMillis < settings.thresholdMillis) return null
+
+        val alerting = session.copy(
+            alerts = AlertState(
+                thresholdAlertedAtMillis = nowMillis,
+                lastAlertAtMillis = nowMillis,
+                count = 1,
+            ),
+        )
+        return Reduction(
+            state = SessionState(Phase.Active, alerting),
+            effects = listOf(
+                SessionEffect.UpdatePersistentDisplay(activeContent(alerting, nowMillis, settings)),
+                SessionEffect.PostThresholdAlert(
+                    ThresholdAlertContent(
+                        elapsedMinutes = elapsedMinutes(alerting, nowMillis),
+                        reAlertMinutes = settings.reAlertMinutes,
+                    ),
+                ),
+                SessionEffect.SaveAlertState(alerting.alerts),
             ),
         )
     }
@@ -159,11 +211,11 @@ object SessionReducer {
 
         return Reduction(
             state = SessionState.Idle,
-            effects = listOf(
-                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
-                closeExpiredSession(session),
-                SessionEffect.CancelGraceExpiry,
-            ),
+            effects = buildList {
+                add(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle))
+                addAll(closeExpiredSession(session))
+                add(SessionEffect.CancelGraceExpiry)
+            },
         )
     }
 
@@ -214,26 +266,40 @@ object SessionReducer {
      * 지금 새 세션을 여는 전이. [closing]이 있으면 이전 세션을 먼저 닫는다(열린 행은 최대 1개다).
      *
      * 상시 표시가 늘 첫 효과다. 포그라운드 서비스의 알림이라 저장보다 뒤로 밀리면 안 된다.
+     *
+     * 새 세션의 알림 상태는 비어 있다. 임계값 알림은 세션마다 처음부터 다시 센다(스펙 3절 전이표).
      */
     private fun startNewSession(
         nowMillis: Long,
         settings: TrackingSettings,
-        closing: SessionEffect.CloseSession? = null,
+        closing: List<SessionEffect> = emptyList(),
         cancelGraceExpiry: Boolean = false,
     ): Reduction {
         val session = Session(startedAtMillis = nowMillis)
         val effects = buildList {
             add(SessionEffect.UpdatePersistentDisplay(activeContent(session, nowMillis, settings)))
-            if (closing != null) add(closing)
+            addAll(closing)
             add(SessionEffect.OpenSession(startedAtMillis = session.startedAtMillis))
             if (cancelGraceExpiry) add(SessionEffect.CancelGraceExpiry)
+            add(
+                SessionEffect.ScheduleThresholdAlert(
+                    atMillis = session.startedAtMillis + settings.thresholdMillis,
+                ),
+            )
         }
         return Reduction(SessionState(Phase.Active, session), effects)
     }
 
-    /** 유예가 지난 세션을 **잠금 시각**으로 닫는다. 잠겨 있던 구간은 세션에 넣지 않는다. */
-    private fun closeExpiredSession(session: Session): SessionEffect.CloseSession =
-        SessionEffect.CloseSession(session.lockedAt(), SessionEndReason.GRACE_EXPIRED)
+    /**
+     * 유예가 지난 세션을 **잠금 시각**으로 닫는다. 잠겨 있던 구간은 세션에 넣지 않는다.
+     *
+     * 알림을 보낸 세션이면 임계값 알림도 함께 걷는다. 알림 상태는 세션에 속해 있어, 세션이 닫히면
+     * 알림 창에 남은 알림도 가리킬 세션이 없다(스펙 4절 제거 시점).
+     */
+    private fun closeExpiredSession(session: Session): List<SessionEffect> = buildList {
+        add(SessionEffect.CloseSession(session.lockedAt(), SessionEndReason.GRACE_EXPIRED))
+        if (session.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+    }
 
     /**
      * 잠금 시각으로부터 유예 시간이 아직 남았는지. 경계는 스펙 3절·7절의 `gap ≤ 유예 시간`이라
@@ -255,7 +321,28 @@ object SessionReducer {
         sessionStartedAtMillis = session.startedAtMillis,
         elapsedMinutes = elapsedMinutes(session, nowMillis),
         thresholdMinutes = settings.thresholdMinutes,
+        nextAlertMinutes = nextAlertMinutes(session, nowMillis, settings),
     )
+
+    /**
+     * 다음 알림까지 남은 분. 초과 상태의 본문 "다음 알림 N분 후"가 된다(스펙 4절).
+     *
+     * 다음 알림은 직전 알림 시각으로부터 재알림 주기 뒤다. 셀 기준점이 없거나(이 세션에서 아직
+     * 알린 적이 없다) 그 시각이 이미 지났으면 null이고, 그때 본문은 초과했다는 사실만 적는다.
+     *
+     * 재알림이 붙으면(#24) 주기가 지나는 순간 알림이 나가면서 기준점이 옮겨지므로, "이미 지났다"는
+     * 쪽은 그 자리를 비운다. 남은 분은 올림한다. "0분 후"가 아니라 남은 분이 그대로 보이게.
+     */
+    private fun nextAlertMinutes(
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Int? {
+        val lastAlertAtMillis = session.alerts.lastAlertAtMillis ?: return null
+        val remainingMillis = lastAlertAtMillis + settings.reAlertIntervalMillis - nowMillis
+        if (remainingMillis <= 0) return null
+        return ((remainingMillis + MINUTE_MILLIS - 1) / MINUTE_MILLIS).toInt()
+    }
 
     private fun graceContent(
         session: Session,

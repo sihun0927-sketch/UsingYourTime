@@ -18,13 +18,15 @@ enum class Phase {
 /**
  * 열린 연속 사용 세션. 시각은 모두 epoch 밀리초다(스펙 8절).
  *
- * Room `sessions` 행 중 리듀서가 판정에 쓰는 열만 담는다. 알림 상태(첫 임계값 알림 시각·회차·
- * 세션 알림 끄기)는 이후 티켓(#23~#25)에서 들어온다.
+ * Room `sessions` 행 중 리듀서가 판정에 쓰는 열만 담는다. 세션 알림 끄기(`muted`)는 이후
+ * 티켓(#25)에서 들어온다.
  */
 data class Session(
     val startedAtMillis: Long,
     /** 마지막 잠금 시각. 유예 중일 때만 있고, 유예가 만료되면 이 시각이 세션의 종료 시각이 된다. */
     val lockedAtMillis: Long? = null,
+    /** 이 세션에서 보낸 임계값 알림의 자취. 세션과 함께 열리고 닫힌다. */
+    val alerts: AlertState = AlertState.None,
 )
 
 /**

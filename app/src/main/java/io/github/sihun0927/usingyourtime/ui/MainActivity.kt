@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
                     sessionStartedAtMillis = sessionStartedAtMillis,
                     notificationPermission = notificationPermission,
                     lockScreenAbsent = lockScreenAbsent,
+                    thresholdMinutes = settings.thresholdMinutes,
                     graceMinutes = settings.graceMinutes,
                     onStartTracking = {
                         when (notificationPermission) {
@@ -79,7 +80,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onPause = { TrackingService.pause(this) },
                     // 저장이 끝나는 즉시 위의 흐름으로 새 값이 돌아오고, 서비스도 같은 흐름을
-                    // 구독하고 있어 다음 판정부터 새 유예 시간을 쓴다(스펙 3절).
+                    // 구독하고 있어 다음 판정부터 새 설정을 쓴다(스펙 3절).
+                    onThresholdMinutesChange = { minutes ->
+                        lifecycleScope.launch { settingsStore.setThresholdMinutes(minutes) }
+                    },
                     onGraceMinutesChange = { minutes ->
                         lifecycleScope.launch { settingsStore.setGraceMinutes(minutes) }
                     },

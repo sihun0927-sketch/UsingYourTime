@@ -1,15 +1,14 @@
 package io.github.sihun0927.usingyourtime.notification
 
 import android.app.Notification
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
+import androidx.annotation.ColorRes
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import io.github.sihun0927.usingyourtime.R
 import io.github.sihun0927.usingyourtime.session.PersistentDisplayContent
-import io.github.sihun0927.usingyourtime.ui.MainActivity
 
 /** 남은 유예를 초로 올림한다. 잠근 직후 "2:59"가 아니라 유예 시간 그대로 보이게 한다. */
 private const val SECOND_MILLIS = 1_000L
@@ -18,7 +17,8 @@ private const val SECOND_MILLIS = 1_000L
  * 상시 표시(스펙 4절). 채널 `tracking`, ongoing, 액션 없음, 잠금 화면 `VISIBILITY_PUBLIC`.
  * 포그라운드 서비스의 알림이라 측정이 켜진 동안 항상 있다.
  *
- * 임계값 초과 표기와 경고색은 이후 티켓(#23)에서 들어온다.
+ * 임계값을 넘기면 제목에 "임계값 N분 초과"가 붙고, 막대가 가득 차고, 색이 경고색으로 바뀐다.
+ * 셋은 [PersistentDisplayContent.Open.exceeded] 하나로 함께 움직인다(#16 결정).
  */
 class PersistentDisplay(private val context: Context) {
 
@@ -33,21 +33,10 @@ class PersistentDisplay(private val context: Context) {
 
     /** 리듀서가 고른 [content]를 스펙 4절 표의 제목·본문·막대로 옮긴다. */
     fun build(content: PersistentDisplayContent): Notification = when (content) {
-        is PersistentDisplayContent.Active -> session(
-            sessionStartedAtMillis = content.sessionStartedAtMillis,
-            elapsedMinutes = content.elapsedMinutes,
-            thresholdMinutes = content.thresholdMinutes,
-            body = context.getString(
-                R.string.persistent_display_body_active,
-                content.thresholdMinutes,
-                (content.thresholdMinutes - content.elapsedMinutes).coerceAtLeast(0),
-            ),
-        )
+        is PersistentDisplayContent.Active -> open(content, activeBody(content))
 
-        is PersistentDisplayContent.Grace -> session(
-            sessionStartedAtMillis = content.sessionStartedAtMillis,
-            elapsedMinutes = content.elapsedMinutes,
-            thresholdMinutes = content.thresholdMinutes,
+        is PersistentDisplayContent.Grace -> open(
+            content = content,
             body = context.getString(
                 R.string.persistent_display_body_grace,
                 minuteSeconds(content.graceRemainingMillis),
@@ -61,32 +50,66 @@ class PersistentDisplay(private val context: Context) {
     }
 
     /**
-     * 세션이 열려 있을 때의 상시 표시. 헤더 시간이 [sessionStartedAtMillis]부터 올라가는
-     * chronometer이고, 막대는 임계값까지의 진행이다. 유예 중에도 둘 다 그대로다(스펙 4절).
+     * 세션이 열려 있을 때의 상시 표시. 헤더 시간이 세션 시작 시각부터 올라가는 chronometer이고,
+     * 막대는 임계값까지의 진행이다. 유예 중에도 셋 다 그대로다(스펙 4절).
      */
-    private fun session(
-        sessionStartedAtMillis: Long,
-        elapsedMinutes: Int,
-        thresholdMinutes: Int,
-        body: String,
-    ): Notification = base()
-        .setContentTitle(context.getString(R.string.persistent_display_title_active))
+    private fun open(content: PersistentDisplayContent.Open, body: String): Notification = base(
+        colorRes = if (content.exceeded) R.color.notification_warning else R.color.notification_accent,
+    )
+        .setContentTitle(
+            if (content.exceeded) {
+                context.getString(R.string.persistent_display_title_exceeded, content.thresholdMinutes)
+            } else {
+                context.getString(R.string.persistent_display_title_active)
+            },
+        )
         .setContentText(body)
-        .setWhen(sessionStartedAtMillis)
+        .setWhen(content.sessionStartedAtMillis)
         .setShowWhen(true)
         .setUsesChronometer(true)
-        .setProgress(thresholdMinutes, elapsedMinutes.coerceAtMost(thresholdMinutes), false)
+        .setProgress(
+            content.thresholdMinutes,
+            content.elapsedMinutes.coerceAtMost(content.thresholdMinutes),
+            false,
+        )
         .build()
 
-    /** 세션 없음의 헤더 시간은 "없음"이라(스펙 4절 표) 기본값은 시간을 감춘 쪽이다. */
-    private fun base(): NotificationCompat.Builder =
+    /**
+     * 세션 진행 중 본문(스펙 4절 표). 임계값 전에는 남은 시간을, 넘긴 뒤에는 다음 알림 예고를 적는다.
+     *
+     * 예고할 다음 알림이 없으면 초과했다는 사실만 적는다. 유예 안에 임계값을 넘긴 세션이 잠금
+     * 해제로 돌아온 직후(그 자리에서 알리는 일은 #26), 그리고 재알림이 아직 없어 주기가 지나가
+     * 버린 동안(#24)이 그렇다. 스펙 4절이 임계값 알림 토글을 끈 초과에 준 문구와 같은 자리다.
+     * 결정 배경은 `docs/adr/0003-persistent-display-body-when-no-next-alert.md`.
+     */
+    private fun activeBody(content: PersistentDisplayContent.Active): String = when {
+        !content.exceeded -> context.getString(
+            R.string.persistent_display_body_active,
+            content.thresholdMinutes,
+            (content.thresholdMinutes - content.elapsedMinutes).coerceAtLeast(0),
+        )
+
+        content.nextAlertMinutes != null -> context.getString(
+            R.string.persistent_display_body_next_alert,
+            content.nextAlertMinutes,
+        )
+
+        else -> context.getString(R.string.persistent_display_body_exceeded, content.thresholdMinutes)
+    }
+
+    /**
+     * 세션 없음의 헤더 시간은 "없음"이라(스펙 4절 표) 기본값은 시간을 감춘 쪽이다.
+     * 색도 마찬가지로 초과가 없는 쪽, 곧 앱 accent가 기본이다.
+     */
+    private fun base(@ColorRes colorRes: Int = R.color.notification_accent): NotificationCompat.Builder =
         NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setShowWhen(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(settingsPendingIntent())
+            .setColor(ContextCompat.getColor(context, colorRes))
+            .setContentIntent(settingsPendingIntent(context))
 
     /**
      * 남은 유예를 스펙 4절의 `m:ss`로 적는다. 유예는 길어야 15분이라 시간 자리가 필요 없다.
@@ -95,18 +118,6 @@ class PersistentDisplay(private val context: Context) {
     private fun minuteSeconds(remainingMillis: Long): String {
         val seconds = (remainingMillis + SECOND_MILLIS - 1) / SECOND_MILLIS
         return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-    }
-
-    /** 탭하면 설정 화면. 앱 아이콘·알림 모두 같은 화면을 열고 딥링크 구분이 없다(스펙 5절). */
-    private fun settingsPendingIntent(): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        return PendingIntent.getActivity(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
     }
 
     companion object {
