@@ -286,7 +286,12 @@ class TrackingService : Service() {
      * 재게시도 이 한 줄이다. Android 14+는 ongoing 알림도 스와이프로 지울 수 있고(스펙 8절 표),
      * 지워진 알림에 같은 id로 다시 게시하면 그대로 돌아온다. `1분 tick`이 측정이 켜진 세 국면
      * (세션 없음·세션 진행·유예 중) 모두에서 상시 표시 효과를 내므로(스펙 4절, [SessionReducer])
-     * 늦어도 1분 안에 되살아난다. 지워졌는지 묻는 코드도, 재게시 전용 경로도 없다.
+     * 다음 tick이 곧 재게시다. 지워졌는지 묻는 코드도, 재게시 전용 경로도 없다.
+     *
+     * 그 tick은 [startMinuteTicker]의 `delay`, 곧 `uptimeMillis` 기준이라 기기가 깊이 잠든 동안
+     * 멈춘다. 스펙 3절이 `1분 tick`에 "Doze로 늦어도 허용"이라 적은 그 지연이고, 여기에 알람을
+     * 더 걸지 않는다. 지울 수 있는 순간이 어차피 화면이 켜져 있는 순간뿐이기 때문이다. Android
+     * 14+가 푼 것은 알림 창에서의 스와이프이지 잠금 화면이 아니다(#7 조사, Android 14 동작 변경).
      */
     private fun showPersistentDisplay(content: PersistentDisplayContent) {
         ServiceCompat.startForeground(
