@@ -85,8 +85,8 @@ class SessionRecoveryTest {
             lockedAtMillis = nowMillis - 2 * MINUTE_MILLIS,
         )
 
-        assertEquals(nowMillis - 2 * MINUTE_MILLIS, lastAliveIsLater.estimatedEndAtMillis)
-        assertEquals(nowMillis - 2 * MINUTE_MILLIS, lockedIsLater.estimatedEndAtMillis)
+        assertEquals(nowMillis - 2 * MINUTE_MILLIS, lastAliveIsLater.estimatedEndTimeMillis)
+        assertEquals(nowMillis - 2 * MINUTE_MILLIS, lockedIsLater.estimatedEndTimeMillis)
     }
 
     @Test
@@ -96,7 +96,7 @@ class SessionRecoveryTest {
             lastAliveAtMillis = nowMillis - 2 * MINUTE_MILLIS,
         )
 
-        assertEquals(nowMillis - 2 * MINUTE_MILLIS, stored.estimatedEndAtMillis)
+        assertEquals(nowMillis - 2 * MINUTE_MILLIS, stored.estimatedEndTimeMillis)
     }
 
     // --- 측정 꺼짐 (스펙 3절 전이표) ---
@@ -145,6 +145,8 @@ class SessionRecoveryTest {
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(startedAtMillis, elapsedMinutes = 20)),
                 SessionEffect.ScheduleThresholdAlert(atMillis = startedAtMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -175,8 +177,9 @@ class SessionRecoveryTest {
         assertEquals(
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(startedAtMillis, elapsedMinutes = 20)),
-                SessionEffect.SaveLockedAt(lockedAtMillis = null),
                 SessionEffect.ScheduleThresholdAlert(atMillis = startedAtMillis + 30 * MINUTE_MILLIS),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -206,7 +209,7 @@ class SessionRecoveryTest {
     @Test
     fun `유예 중으로 복원하면 유예 만료 깨우기를 추정 종료 시각 기준으로 다시 건다`() {
         val startedAtMillis = nowMillis - 20 * MINUTE_MILLIS
-        val estimatedEndAtMillis = nowMillis - 2 * MINUTE_MILLIS
+        val estimatedEndTimeMillis = nowMillis - 2 * MINUTE_MILLIS
         val stored = openSince(startedAtMillis, lastAliveMinutesAgo = 2)
 
         val reduction = restart(storedSession = stored, unlocked = false)
@@ -221,9 +224,9 @@ class SessionRecoveryTest {
                         graceRemainingMillis = MINUTE_MILLIS,
                     ),
                 ),
-                SessionEffect.SaveLockedAt(lockedAtMillis = estimatedEndAtMillis),
+                SessionEffect.SaveLockedAt(lockedAtMillis = estimatedEndTimeMillis),
                 SessionEffect.ScheduleGraceExpiry(
-                    atMillis = estimatedEndAtMillis + settings.gracePeriodMillis,
+                    atMillis = estimatedEndTimeMillis + settings.gracePeriodMillis,
                 ),
             ),
             reduction.effects,
@@ -234,7 +237,7 @@ class SessionRecoveryTest {
 
     @Test
     fun `공백이 유예를 넘고 잠금 해제 상태면 추정 종료 시각으로 닫고 지금 새 세션을 연다`() {
-        val estimatedEndAtMillis = nowMillis - 5 * MINUTE_MILLIS
+        val estimatedEndTimeMillis = nowMillis - 5 * MINUTE_MILLIS
         val stored = openSince(nowMillis - 40 * MINUTE_MILLIS, lastAliveMinutesAgo = 5)
 
         val reduction = restart(storedSession = stored, unlocked = true)
@@ -246,9 +249,10 @@ class SessionRecoveryTest {
         assertEquals(
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
-                SessionEffect.CloseSession(estimatedEndAtMillis, SessionEndReason.ESTIMATED),
-                SessionEffect.SaveRestartNotice(atMillis = estimatedEndAtMillis),
+                SessionEffect.CloseSession(estimatedEndTimeMillis, SessionEndReason.ESTIMATED),
+                SessionEffect.SaveRestartNotice(atMillis = estimatedEndTimeMillis),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
+                SessionEffect.CancelGraceExpiry,
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
             ),
             reduction.effects,
@@ -257,7 +261,7 @@ class SessionRecoveryTest {
 
     @Test
     fun `공백이 유예를 넘고 잠금 상태면 추정 종료 시각으로 닫고 세션 없음이 된다`() {
-        val estimatedEndAtMillis = nowMillis - 5 * MINUTE_MILLIS
+        val estimatedEndTimeMillis = nowMillis - 5 * MINUTE_MILLIS
         val stored = openSince(nowMillis - 40 * MINUTE_MILLIS, lastAliveMinutesAgo = 5)
 
         val reduction = restart(storedSession = stored, unlocked = false)
@@ -266,8 +270,9 @@ class SessionRecoveryTest {
         assertEquals(
             listOf(
                 SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
-                SessionEffect.CloseSession(estimatedEndAtMillis, SessionEndReason.ESTIMATED),
-                SessionEffect.SaveRestartNotice(atMillis = estimatedEndAtMillis),
+                SessionEffect.CloseSession(estimatedEndTimeMillis, SessionEndReason.ESTIMATED),
+                SessionEffect.SaveRestartNotice(atMillis = estimatedEndTimeMillis),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -289,6 +294,7 @@ class SessionRecoveryTest {
                 SessionEffect.CloseSession(nowMillis - 5 * MINUTE_MILLIS, SessionEndReason.ESTIMATED),
                 SessionEffect.DismissThresholdAlert,
                 SessionEffect.SaveRestartNotice(atMillis = nowMillis - 5 * MINUTE_MILLIS),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -296,7 +302,7 @@ class SessionRecoveryTest {
 
     @Test
     fun `공백이 유예를 한 순간이라도 넘으면 세션이 닫힌다`() {
-        val stored = openSince(
+        val stored = StoredSession(
             startedAtMillis = nowMillis - 40 * MINUTE_MILLIS,
             lastAliveAtMillis = nowMillis - 3 * MINUTE_MILLIS - 1,
         )
@@ -304,6 +310,25 @@ class SessionRecoveryTest {
         val reduction = restart(storedSession = stored, unlocked = false)
 
         assertEquals(SessionState.Idle, reduction.state)
+    }
+
+    @Test
+    fun `유예 0분이면 잠긴 채 살아나도 유예 중이 되지 않고 세션이 닫힌다`() {
+        val noGrace = TrackingSettings(graceMinutes = 0)
+        val stored = openSince(nowMillis - 40 * MINUTE_MILLIS, lastAliveMinutesAgo = 0)
+
+        val reduction = restart(storedSession = stored, unlocked = false, settings = noGrace)
+
+        assertEquals(SessionState.Idle, reduction.state)
+        assertEquals(
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
+                SessionEffect.CloseSession(nowMillis, SessionEndReason.ESTIMATED),
+                SessionEffect.SaveRestartNotice(atMillis = nowMillis),
+                SessionEffect.CancelGraceExpiry,
+            ),
+            reduction.effects,
+        )
     }
 
     // --- 열린 세션이 없을 때 ---
@@ -320,6 +345,7 @@ class SessionRecoveryTest {
             listOf(
                 SessionEffect.UpdatePersistentDisplay(activeContent(nowMillis, elapsedMinutes = 0)),
                 SessionEffect.OpenSession(startedAtMillis = nowMillis),
+                SessionEffect.CancelGraceExpiry,
                 SessionEffect.ScheduleThresholdAlert(atMillis = nowMillis + 30 * MINUTE_MILLIS),
                 SessionEffect.SaveRestartNotice(atMillis = null),
             ),
@@ -333,7 +359,10 @@ class SessionRecoveryTest {
 
         assertEquals(SessionState.Idle, reduction.state)
         assertEquals(
-            listOf(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle)),
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
+                SessionEffect.CancelGraceExpiry,
+            ),
             reduction.effects,
         )
     }
@@ -358,6 +387,8 @@ class SessionRecoveryTest {
                     activeContent(startedAtMillis, elapsedMinutes = 45, nextAlertMinutes = 5),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 5 * MINUTE_MILLIS),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -386,6 +417,8 @@ class SessionRecoveryTest {
                     ),
                 ),
                 SessionEffect.ScheduleReAlert(atMillis = nowMillis + 15 * MINUTE_MILLIS),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -404,6 +437,8 @@ class SessionRecoveryTest {
                 SessionEffect.UpdatePersistentDisplay(
                     activeContent(startedAtMillis, elapsedMinutes = 45, muted = true),
                 ),
+                SessionEffect.SaveLockedAt(lockedAtMillis = null),
+                SessionEffect.CancelGraceExpiry,
             ),
             reduction.effects,
         )
@@ -421,6 +456,27 @@ class SessionRecoveryTest {
         val reduction = restart(storedSession = stored, unlocked = true)
 
         assertEquals(Session(startedAtMillis = nowMillis), reduction.state.session)
+    }
+
+    @Test
+    fun `서비스 재시작은 들고 있던 상태 대신 저장된 세션을 믿는다`() {
+        val storedStartedAtMillis = nowMillis - 20 * MINUTE_MILLIS
+        val stored = openSince(storedStartedAtMillis, lastAliveMinutesAgo = 1)
+        // 프로세스가 죽지 않았다면 있었을 법한, 저장된 것과 다른 상태.
+        val stale = SessionState(Phase.Active, Session(startedAtMillis = nowMillis - MINUTE_MILLIS))
+
+        val reduction = SessionReducer.reduce(
+            state = stale,
+            event = SessionEvent.ServiceRestart(
+                trackingOn = true,
+                storedSession = stored,
+                unlocked = true,
+            ),
+            nowMillis = nowMillis,
+            settings = settings,
+        )
+
+        assertEquals(storedStartedAtMillis, reduction.state.session?.startedAtMillis)
     }
 
     // --- 재부팅 (스펙 7절) ---
@@ -499,24 +555,10 @@ class SessionRecoveryTest {
         lockedMinutesAgo: Int? = null,
         alerts: AlertState = AlertState.None,
         muted: Boolean = false,
-    ): StoredSession = openSince(
+    ): StoredSession = StoredSession(
         startedAtMillis = startedAtMillis,
         lastAliveAtMillis = nowMillis - lastAliveMinutesAgo * MINUTE_MILLIS,
         lockedAtMillis = lockedMinutesAgo?.let { nowMillis - it * MINUTE_MILLIS },
-        alerts = alerts,
-        muted = muted,
-    )
-
-    private fun openSince(
-        startedAtMillis: Long,
-        lastAliveAtMillis: Long,
-        lockedAtMillis: Long? = null,
-        alerts: AlertState = AlertState.None,
-        muted: Boolean = false,
-    ): StoredSession = StoredSession(
-        startedAtMillis = startedAtMillis,
-        lastAliveAtMillis = lastAliveAtMillis,
-        lockedAtMillis = lockedAtMillis,
         alerts = alerts,
         muted = muted,
     )

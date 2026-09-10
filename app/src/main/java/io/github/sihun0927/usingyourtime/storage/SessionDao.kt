@@ -10,7 +10,7 @@ import io.github.sihun0927.usingyourtime.session.StoredSession
 /**
  * `sessions` 테이블 접근. 리듀서가 낸 저장 효과를 그대로 받는다.
  *
- * 세션 기록에는 화면이 없다(스펙 1절 범위 밖). 읽는 곳은 재동기화 하나뿐이다([openSession]).
+ * 세션 기록에는 화면이 없다(스펙 1절 범위 밖). 읽는 곳은 재동기화 하나뿐이다([findOpenSession]).
  *
  * **열린 행은 최대 1개**다. 리듀서가 새 세션을 열기 전에 언제나 이전 세션을 먼저 닫아 이 불변식을
  * 지킨다. 프로세스가 죽어 닫지 못한 행만 예외로 남는데, 여기서는 그 행을 손대지 않는다. 스펙 7절의
@@ -39,7 +39,7 @@ interface SessionDao {
     suspend fun saveLastAliveAt(lastAliveAtMillis: Long)
 
     @Query("SELECT * FROM sessions WHERE id = $OPEN_SESSION_ID")
-    suspend fun findOpen(): SessionEntity?
+    suspend fun findOpenRow(): SessionEntity?
 
     /**
      * 닫히지 못하고 남은 열린 세션. 서비스가 되살아날 때 재동기화의 재료다(스펙 7절).
@@ -47,7 +47,7 @@ interface SessionDao {
      * 열린 행이 여럿 남아 있어도 가장 최근에 시작된 하나만 본다. 나머지는 프로세스가 죽으며 닫지
      * 못한 옛 행이고, 지금 세션을 판정하는 데 쓸 것이 없다.
      */
-    suspend fun openSession(): StoredSession? = findOpen()?.toStoredSession()
+    suspend fun findOpenSession(): StoredSession? = findOpenRow()?.toStoredSession()
 
     @Query(
         "UPDATE sessions SET threshold_alerted_at = :thresholdAlertedAtMillis, " +

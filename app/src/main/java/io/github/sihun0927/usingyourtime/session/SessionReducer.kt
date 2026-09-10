@@ -99,15 +99,24 @@ object SessionReducer {
             ?: return resumeWithoutSession(event.unlocked, nowMillis, settings)
 
         // 규칙 1. 공백을 재는 기준은 지금 시각과 추정 종료 시각의 차이다.
-        val gapMillis = nowMillis - stored.estimatedEndAtMillis
+        val gapMillis = nowMillis - stored.estimatedEndTimeMillis
 
         return when {
+            // 규칙 4.
             gapMillis > settings.gracePeriodMillis ->
-                closeEstimated(stored, event.unlocked, nowMillis, settings) // 규칙 4
+                closeEstimated(stored, event.unlocked, nowMillis, settings)
 
-            event.unlocked -> resumeSession(stored, nowMillis, settings) // 규칙 2
+            // 규칙 2. 유예 안에 잠금 해제된 세션과 같은 자리다.
+            event.unlocked -> continueSession(stored.toSession(stored.lockedAtMillis), nowMillis, settings)
 
-            else -> resumeGrace(stored, nowMillis, settings) // 규칙 3
+            // 유예 0분에는 유예 중이라는 상태 자체가 없다(전이표). 공백이 0이라 "gap ≤ 유예"가
+            // 참이 된 이 한 순간도 [lock]과 같이 곧바로 세션 없음으로 간다. 그러지 않으면 만료
+            // 시각이 곧 지금인 유예 중이 되어, 깨우기가 스스로를 되부르며 제자리를 맴돈다.
+            settings.gracePeriodMillis == 0L ->
+                closeEstimated(stored, unlocked = false, nowMillis = nowMillis, settings = settings)
+
+            // 규칙 3.
+            else -> resumeGrace(stored, nowMillis, settings)
         }
     }
 
@@ -121,47 +130,14 @@ object SessionReducer {
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction = if (unlocked) {
-        startNewSession(nowMillis, settings)
+        startNewSession(nowMillis, settings, cancelGraceExpiry = true)
     } else {
         Reduction(
             SessionState.Idle,
-            listOf(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle)),
-        )
-    }
-
-    /**
-     * 규칙 2. 잠금 해제 상태이고 공백이 유예 안이라 **같은 세션이 이어진다**. 시작 시각 그대로이고
-     * 공백도 연속 사용 시간에 들어간다(스펙 7절).
-     *
-     * 유예 안 잠금 해제([continueSession])와 같은 자리다. 잠긴 동안 알림이 나가지 않았을 뿐 아니라
-     * 서비스가 아예 없었으므로, 그 사이에 넘긴 임계값과 지나간 재알림 주기가 똑같이 밀려 있다.
-     * 그래서 판정도 똑같이 [alertOrRepaint] **한 번**이다.
-     *
-     * 다른 점은 걸어 둘 깨우기다. 유예 안 잠금 해제는 서비스가 살아 있어 타이머가 그대로지만,
-     * 여기서는 프로세스와 함께 다 사라졌다. 알림이 나갔으면 [postAlert]가 다음 재알림을 이미
-     * 걸었고, 나가지 않았으면 [nextAlertWakeUp]이 남은 하나를 건다.
-     */
-    private fun resumeSession(
-        stored: StoredSession,
-        nowMillis: Long,
-        settings: TrackingSettings,
-    ): Reduction {
-        val session = stored.toSession(lockedAtMillis = null)
-        val judged = alertOrRepaint(SessionState(Phase.Active, session), nowMillis, settings)
-        val resumed = judged.state.openSession()
-
-        return judged.copy(
-            effects = buildList {
-                addAll(judged.effects)
-                // 유예 중에 끊겼던 세션이다. 잠금 시각을 남겨 두면 다음 추정 종료 시각을 과거로
-                // 끌어내린다(스펙 8절, 잠금 시각은 "유예 중일 때"의 열이다).
-                if (stored.lockedAtMillis != null) {
-                    add(SessionEffect.SaveLockedAt(lockedAtMillis = null))
-                }
-                if (resumed.alerts == session.alerts) {
-                    nextAlertWakeUp(resumed, nowMillis, settings)?.let(::add)
-                }
-            },
+            listOf(
+                SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle),
+                SessionEffect.CancelGraceExpiry,
+            ),
         )
     }
 
@@ -181,16 +157,16 @@ object SessionReducer {
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val estimatedEndAtMillis = stored.estimatedEndAtMillis
-        val session = stored.toSession(lockedAtMillis = estimatedEndAtMillis)
+        val estimatedEndTimeMillis = stored.estimatedEndTimeMillis
+        val session = stored.toSession(lockedAtMillis = estimatedEndTimeMillis)
 
         return Reduction(
             state = SessionState(Phase.Grace, session),
             effects = listOf(
                 SessionEffect.UpdatePersistentDisplay(graceContent(session, nowMillis, settings)),
-                SessionEffect.SaveLockedAt(lockedAtMillis = estimatedEndAtMillis),
+                SessionEffect.SaveLockedAt(lockedAtMillis = estimatedEndTimeMillis),
                 SessionEffect.ScheduleGraceExpiry(
-                    atMillis = estimatedEndAtMillis + settings.gracePeriodMillis,
+                    atMillis = estimatedEndTimeMillis + settings.gracePeriodMillis,
                 ),
             ),
         )
@@ -214,15 +190,21 @@ object SessionReducer {
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val estimatedEndAtMillis = stored.estimatedEndAtMillis
-        val closing = buildList {
-            add(SessionEffect.CloseSession(estimatedEndAtMillis, SessionEndReason.ESTIMATED))
-            if (stored.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
-            add(SessionEffect.SaveRestartNotice(atMillis = estimatedEndAtMillis))
-        }
+        val estimatedEndTimeMillis = stored.estimatedEndTimeMillis
+        val closing = closeSession(
+            endedAtMillis = estimatedEndTimeMillis,
+            reason = SessionEndReason.ESTIMATED,
+            alerted = stored.alerts.alerted,
+        ) + SessionEffect.SaveRestartNotice(atMillis = estimatedEndTimeMillis)
 
         if (unlocked) {
-            return startNewSession(nowMillis, settings, closing, clearRestartNotice = false)
+            return startNewSession(
+                nowMillis = nowMillis,
+                settings = settings,
+                closing = closing,
+                cancelGraceExpiry = true,
+                clearRestartNotice = false,
+            )
         }
 
         return Reduction(
@@ -230,37 +212,9 @@ object SessionReducer {
             effects = buildList {
                 add(SessionEffect.UpdatePersistentDisplay(PersistentDisplayContent.Idle))
                 addAll(closing)
+                add(SessionEffect.CancelGraceExpiry)
             },
         )
-    }
-
-    /**
-     * 재시작한 세션에 다시 걸 알림 깨우기 하나, 걸 것이 없으면 null.
-     *
-     * 프로세스가 죽으면 걸어 둔 타이머가 모두 사라진다. 세션에 남은 자취가 어느 깨우기를 걸지
-     * 정한다. 아직 알린 적이 없으면 임계값 시각으로, 알린 적이 있으면 직전 알림 + 재알림 주기로.
-     *
-     * 그 시각이 이미 지났으면 걸지 않는다([rescheduleReAlert]와 같은 이유로 곧바로 돌아오는 깨우기가
-     * 되기 때문이다). 지난 시각은 재시작 직후의 판정이 이미 갚았거나, 알림이 막혀 갚을 수 없는
-     * 경우뿐이고 후자는 `1분 tick`이 다시 본다.
-     */
-    private fun nextAlertWakeUp(
-        session: Session,
-        nowMillis: Long,
-        settings: TrackingSettings,
-    ): SessionEffect? {
-        if (!alertsAllowed(session, settings)) return null
-
-        val lastAlertAtMillis = session.alerts.lastAlertAtMillis
-        val atMillis = lastAlertAtMillis?.plus(settings.reAlertIntervalMillis)
-            ?: (session.startedAtMillis + settings.thresholdMillis)
-        if (atMillis <= nowMillis) return null
-
-        return if (lastAlertAtMillis == null) {
-            SessionEffect.ScheduleThresholdAlert(atMillis)
-        } else {
-            SessionEffect.ScheduleReAlert(atMillis)
-        }
     }
 
     /** 측정 꺼짐 → 세션 진행. 버튼을 누른 시점은 잠금 해제 상태이므로 **지금** 세션을 연다. */
@@ -285,8 +239,13 @@ object SessionReducer {
         state = SessionState.Off,
         effects = buildList {
             if (state.session != null) {
-                add(SessionEffect.CloseSession(nowMillis, SessionEndReason.PAUSED))
-                if (state.session.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+                addAll(
+                    closeSession(
+                        endedAtMillis = nowMillis,
+                        reason = SessionEndReason.PAUSED,
+                        alerted = state.session.alerts.alerted,
+                    ),
+                )
             }
             add(SessionEffect.SaveTrackingOn(trackingOn = false))
             if (state.phase == Phase.Grace) add(SessionEffect.CancelGraceExpiry)
@@ -343,14 +302,17 @@ object SessionReducer {
      *
      * 잠금 시각 지우기와 유예 만료 깨우기 취소는 판정 결과와 무관하게 늘 낸다. 알림 효과보다
      * 뒤에 두어, 상시 표시와 임계값 알림이 앞선 저장을 기다리지 않게 한다.
+     *
+     * 재동기화 규칙 2도 이 자리다(스펙 7절). 유예 안에 되살아난 서비스가 하는 일이 유예 안에
+     * 잠금 해제된 세션에 하는 일과 같기 때문이다. 프로세스가 죽어 있었든 잠겨 있었든 그동안
+     * 알림이 나가지 않은 것도, 그래서 밀린 것을 여기서 한 번에 갚는 것도 똑같다.
      */
     private fun continueSession(
         session: Session,
         nowMillis: Long,
         settings: TrackingSettings,
     ): Reduction {
-        val continued = SessionState(Phase.Active, session.copy(lockedAtMillis = null))
-        val reduction = alertOrRepaint(continued, nowMillis, settings)
+        val reduction = judgeAndRearm(session.copy(lockedAtMillis = null), nowMillis, settings)
 
         return reduction.copy(
             effects = reduction.effects + listOf(
@@ -358,6 +320,60 @@ object SessionReducer {
                 SessionEffect.CancelGraceExpiry,
             ),
         )
+    }
+
+    /**
+     * 세션 진행으로 돌아오는 자리의 판정. 지금 보낼 알림이 있으면 보내고, 없으면 다음 알림으로
+     * 깨울 예약을 다시 건다.
+     *
+     * 예약을 다시 거는 이유는 이 자리에 오는 두 길 모두 깨울 것을 잃은 뒤이기 때문이다. 재시작은
+     * 프로세스와 함께 타이머가 통째로 사라졌고([resumeSession]), 유예 중 잠금 해제는 잠긴 동안
+     * 임계값 깨우기가 이미 왔다 가며 소모됐을 수 있다(그때 리듀서는 잠금 중이라 알림을 보내지
+     * 않았고, 다시 걸지도 않았다). 둘 다 `1분 tick`이 결국 메우지만 최대 1분이 늦는다.
+     *
+     * 알림이 나갔으면 [postAlert]가 다음 재알림을 이미 걸어 두었으므로 더 걸지 않는다. 알림 상태가
+     * 움직였는지가 곧 그 답이다.
+     */
+    private fun judgeAndRearm(
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): Reduction {
+        val judged = alertOrRepaint(SessionState(Phase.Active, session), nowMillis, settings)
+        val judgedSession = judged.state.openSession()
+        if (judgedSession.alerts != session.alerts) return judged
+
+        val wakeUp = nextAlertWakeUp(judgedSession, nowMillis, settings) ?: return judged
+        return judged.copy(effects = judged.effects + wakeUp)
+    }
+
+    /**
+     * 재시작한 세션에 다시 걸 알림 깨우기 하나, 걸 것이 없으면 null.
+     *
+     * 세션에 남은 자취가 어느 깨우기를 걸지 정한다. 아직 알린 적이 없으면 임계값 시각으로, 알린
+     * 적이 있으면 직전 알림 + 재알림 주기로.
+     *
+     * 그 시각이 이미 지났으면 걸지 않는다([rescheduleReAlert]와 같은 이유로 곧바로 돌아오는 깨우기가
+     * 되기 때문이다). 지난 시각은 방금의 판정이 이미 갚았거나, 알림이 막혀 갚을 수 없는 경우뿐이고
+     * 후자는 `1분 tick`이 다시 본다.
+     */
+    private fun nextAlertWakeUp(
+        session: Session,
+        nowMillis: Long,
+        settings: TrackingSettings,
+    ): SessionEffect? {
+        if (!alertsAllowed(session, settings)) return null
+
+        val lastAlertAtMillis = session.alerts.lastAlertAtMillis
+        val atMillis = lastAlertAtMillis?.plus(settings.reAlertIntervalMillis)
+            ?: (session.startedAtMillis + settings.thresholdMillis)
+        if (atMillis <= nowMillis) return null
+
+        return if (lastAlertAtMillis == null) {
+            SessionEffect.ScheduleThresholdAlert(atMillis)
+        } else {
+            SessionEffect.ScheduleReAlert(atMillis)
+        }
     }
 
     /**
@@ -724,7 +740,8 @@ object SessionReducer {
      * 재시작 안내도 여기서 사라진다. 스펙 7절이 "그 다음 세션이 시작될 때 사라진다"고 적은 자리이고,
      * 전이표의 세션 없음 · `잠금 해제` 칸도 같은 말을 한다. 세션이 열리는 길이 모두 이 함수를
      * 지나므로 여는 자리마다 따로 적지 않는다. 예외는 규칙 4가 스스로 여는 세션 하나뿐이다
-     * ([closeEstimated]).
+     * ([closeEstimated]). 두 문서의 넓이가 달라 한쪽을 고른 자리라
+     * `docs/adr/0004-restart-notice-clears-when-any-session-opens.md`에 남겼다.
      */
     private fun startNewSession(
         nowMillis: Long,
@@ -751,13 +768,27 @@ object SessionReducer {
 
     /**
      * 유예가 지난 세션을 **잠금 시각**으로 닫는다. 잠겨 있던 구간은 세션에 넣지 않는다.
+     */
+    private fun closeExpiredSession(session: Session): List<SessionEffect> = closeSession(
+        endedAtMillis = session.lockedAt(),
+        reason = SessionEndReason.GRACE_EXPIRED,
+        alerted = session.alerts.alerted,
+    )
+
+    /**
+     * 열린 세션을 닫는 효과. 닫는 세 길(유예 만료·측정 중지·추정 종료)이 종료 시각과 원인만
+     * 다르고 나머지는 같아 여기 한 번만 적는다.
      *
      * 알림을 보낸 세션이면 임계값 알림도 함께 걷는다. 알림 상태는 세션에 속해 있어, 세션이 닫히면
      * 알림 창에 남은 알림도 가리킬 세션이 없다(스펙 4절 제거 시점).
      */
-    private fun closeExpiredSession(session: Session): List<SessionEffect> = buildList {
-        add(SessionEffect.CloseSession(session.lockedAt(), SessionEndReason.GRACE_EXPIRED))
-        if (session.alerts.alerted) add(SessionEffect.DismissThresholdAlert)
+    private fun closeSession(
+        endedAtMillis: Long,
+        reason: SessionEndReason,
+        alerted: Boolean,
+    ): List<SessionEffect> = buildList {
+        add(SessionEffect.CloseSession(endedAtMillis, reason))
+        if (alerted) add(SessionEffect.DismissThresholdAlert)
     }
 
     /**

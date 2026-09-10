@@ -30,7 +30,7 @@ data class StoredSession(
      * 시각이 더 늦고, 세션 진행 중에 끊겼다면 잠금 시각이 아예 없거나(한 번도 잠기지 않았다)
      * 지난 세션의 것보다 heartbeat가 늦다. 어느 쪽이든 늦은 쪽이 측정이 살아 있던 마지막 순간이다.
      */
-    val estimatedEndAtMillis: Long
+    val estimatedEndTimeMillis: Long
         get() = lockedAtMillis?.let { maxOf(lastAliveAtMillis, it) } ?: lastAliveAtMillis
 
     /** 저장된 행을 지금 살아 있는 세션으로 옮긴다. 알림 상태와 세션 알림 끄기가 함께 따라온다. */

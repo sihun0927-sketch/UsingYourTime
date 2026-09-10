@@ -24,15 +24,6 @@ class SettingsStore(context: Context) {
     val trackingOn: Flow<Boolean> = dataStore.data.map { it[TRACKING_ON] ?: false }
 
     /**
-     * 측정이 끊겼다가 재동기화 규칙 4로 세션이 닫힌 시각(스펙 7절 사용자 안내). null이면 안내가
-     * 없다.
-     *
-     * 상태 카드가 이 값을 "HH:MM에 측정이 중단됐다가 지금 다시 시작했어요"로 그리는 일은 티켓
-     * #28이 맡는다.
-     */
-    val restartNoticeAt: Flow<Long?> = dataStore.data.map { it[RESTART_NOTICE_AT] }
-
-    /**
      * 리듀서가 판정에 쓰는 설정. 저장이 끝나는 즉시 새 값이 흘러와 다음 판정부터 적용된다
      * (스펙 3절 설정 변경 중 동작).
      */
@@ -50,7 +41,13 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[TRACKING_ON] = trackingOn }
     }
 
-    /** 재시작 안내 시각을 적거나([atMillis]가 null이면) 지운다. 리듀서가 낸 효과만 부른다. */
+    /**
+     * 재시작 안내 시각(스펙 7절 사용자 안내)을 적거나 [atMillis]가 null이면 지운다. 리듀서가 낸
+     * 효과만 부른다.
+     *
+     * 읽는 쪽은 아직 없다. 이 값을 "HH:MM에 측정이 중단됐다가 지금 다시 시작했어요"로 그리는 일은
+     * 티켓 #28이 맡고, 읽는 흐름도 그때 붙는다.
+     */
     suspend fun setRestartNoticeAt(atMillis: Long?) {
         dataStore.edit { preferences ->
             if (atMillis == null) {

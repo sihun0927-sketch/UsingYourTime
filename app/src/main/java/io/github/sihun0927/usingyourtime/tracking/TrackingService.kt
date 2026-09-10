@@ -192,20 +192,16 @@ class TrackingService : Service() {
      * 그래서 아직 아무것도 모르는 이 순간에 맞는 대기 문구를 띄우고, 재동기화가 정한 내용으로
      * 곧바로 덮는다. `tracking_on`이 꺼져 있었으면 리듀서가 서비스를 내려 그 대기 문구도 사라진다.
      *
-     * 유예 만료 알람은 프로세스가 죽어도 남는다. `onDestroy`를 거치지 못한 채 죽었다면 걷힐 자리가
-     * 없었으므로 여기서 걷는다. 유예 중으로 복원되면 리듀서가 추정치 기준으로 다시 건다.
-     *
      * 설정도 여기서 한 번 읽는다. `onCreate`가 건 구독의 첫 값을 기다리면 재동기화가 스펙 6절
      * 기본값으로 판정할 수 있고, 공백을 재는 유예 시간이 어긋나면 세션을 잘못 잇거나 잘못 닫는다.
      */
     private fun resync() {
         showPersistentDisplay(PersistentDisplayContent.Idle)
-        graceExpiryAlarm.cancel()
 
         serviceScope.launch {
             settings = settingsStore.settings.first()
             val trackingOn = settingsStore.trackingOn.first()
-            val storedSession = sessionDao.openSession()
+            val storedSession = sessionDao.findOpenSession()
             dispatch(
                 SessionEvent.ServiceRestart(
                     trackingOn = trackingOn,
