@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
      */
     private var notificationPermission by mutableStateOf(NotificationPermission.Granted)
 
+    private val settingsStore by lazy { SettingsStore(this) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -43,11 +45,12 @@ class MainActivity : ComponentActivity() {
             notificationPermission = NotificationPermission.Denied
         }
 
-        val settingsStore = SettingsStore(this)
         setContent {
             UsingTimeTheme {
                 val trackingOn by settingsStore.trackingOn.collectAsState(initial = false)
                 val settings by settingsStore.settings.collectAsState(initial = TrackingSettings())
+                val restartNoticeAtMillis by settingsStore.restartNoticeAtMillis
+                    .collectAsState(initial = null)
                 val sessionStartedAtMillis by TrackingStatus.sessionStartedAtMillis.collectAsState()
                 val muted by TrackingStatus.muted.collectAsState()
                 val lockScreenAbsent by TrackingStatus.lockScreenAbsent.collectAsState()
@@ -68,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     sessionStartedAtMillis = sessionStartedAtMillis,
                     notificationPermission = notificationPermission,
                     muted = muted,
+                    restartNoticeAtMillis = restartNoticeAtMillis,
                     lockScreenAbsent = lockScreenAbsent,
                     thresholdMinutes = settings.thresholdMinutes,
                     graceMinutes = settings.graceMinutes,
@@ -98,6 +102,30 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch { settingsStore.setThresholdAlertEnabled(enabled) }
                     },
                 )
+            }
+        }
+    }
+
+    /**
+     * 강제 종료·Task Manager "Stop"·OEM 절전으로 서비스만 사라진 뒤의 복구(스펙 7절).
+     *
+     * `tracking_on`은 켜져 있는데 서비스가 없으면 **확인 다이얼로그 없이** 다시 띄운다. 사용자는
+     * 측정을 끈 적이 없으니 물어볼 것이 없다. 세션을 잇는지 닫는지는 서비스의 재동기화가 정한다.
+     *
+     * [onResume]이 아니라 [onStart]인 이유는 스펙이 적은 자리가 "액티비티 시작 시"이기 때문이다.
+     * 화면을 잠갔다 열 때마다 되풀이할 일이 아니고, 무엇보다 사용자가 측정 중지를 누른 직후에 다시
+     * 물으면 방금 내린 서비스를 되살릴 수 있다. 그 순간 [TrackingStatus.running]은 이미 거짓인데
+     * DataStore의 `tracking_on`은 아직 참으로 읽힐 수 있어서다. 화면이 떠 있는 동안 일어나는
+     * 측정 중지는 [onStart]를 다시 부르지 않는다.
+     *
+     * `tracking_on`을 보는 것은 [TrackingService.restartIfTrackingOn]이다. 여기서 가리는 것은
+     * "서비스가 이 프로세스에 있나" 하나뿐이다.
+     */
+    override fun onStart() {
+        super.onStart()
+        lifecycleScope.launch {
+            if (!TrackingStatus.running.value) {
+                TrackingService.restartIfTrackingOn(this@MainActivity)
             }
         }
     }

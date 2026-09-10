@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import io.github.sihun0927.usingyourtime.R
 import io.github.sihun0927.usingyourtime.ui.theme.UsingTimeTheme
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** 연속 사용 시간을 다시 그리는 주기. 1초 눈금이 초 경계에 맞춰 올라간다. */
 private const val TICK_MILLIS = 1_000L
@@ -40,8 +43,8 @@ private const val TICK_MILLIS = 1_000L
  * 3줄(측정 상태·연속 사용 시간·버튼)에 꺼짐 설명 문단과 조건부 안내 줄이 붙는다.
  * [sessionStartedAtMillis]가 있으면 연속 사용 시간이 1초마다 올라가고, 없으면 "—"다.
  *
- * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 지금 있는 것은 알림 권한·[muted]·
- * [lockScreenAbsent]이고, 사이에 들어갈 재시작 안내는 #28에서 온다.
+ * 조건부 안내 줄은 스펙 5절이 적은 순서대로 쌓인다. 알림 권한 → [muted] → [restartNoticeAtMillis]
+ * → [lockScreenAbsent].
  */
 @Composable
 internal fun StatusCard(
@@ -49,6 +52,7 @@ internal fun StatusCard(
     sessionStartedAtMillis: Long?,
     notificationPermission: NotificationPermission,
     muted: Boolean,
+    restartNoticeAtMillis: Long?,
     lockScreenAbsent: Boolean,
     onStartTracking: () -> Unit,
     onPause: () -> Unit,
@@ -85,6 +89,18 @@ internal fun StatusCard(
             if (muted) {
                 SupportingText(
                     text = stringResource(R.string.status_card_muted),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // 측정이 꺼져 있으면 보여주지 않는다. 사용자가 측정 중지를 눌러 놓고도 "지금 다시
+            // 시작했어요"를 읽게 된다. 저장된 값은 그대로 두고 화면에서만 가린다. 지우는 시점은
+            // 스펙 7절대로 "그 다음 세션이 시작될 때"이고, 그것은 리듀서가 정한다.
+            if (trackingOn && restartNoticeAtMillis != null) {
+                SupportingText(
+                    text = stringResource(
+                        R.string.status_card_restart_notice,
+                        formatTime(restartNoticeAtMillis),
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -155,6 +171,20 @@ private fun elapsedSeconds(sessionStartedAtMillis: Long): Long {
 }
 
 /**
+ * 재시작 안내 줄의 시각 표기. 스펙 7절 문구의 "HH:MM" 그대로 24시간제 두 자리다.
+ *
+ * 기기의 12/24시간제 설정을 따르지 않는다. 따르게 하면 12시간제 기기에서 "5:49 AM에 측정이
+ * 중단됐다가…"처럼 로캘이 정한 영문 표기가 한국어 문장 가운데 끼어든다(에뮬레이터에서 확인).
+ * 앱 문자열이 한국어 하나뿐이라 시각만 로캘을 따를 이유가 없다.
+ */
+private fun formatTime(atMillis: Long): String = TIME_FORMATTER.format(
+    Instant.ofEpochMilli(atMillis).atZone(ZoneId.systemDefault()),
+)
+
+/** [formatTime]의 형식. 로캘에 기대지 않도록 패턴을 고정한다. */
+private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
+
+/**
  * 알림 권한 안내 줄(스펙 5절). 요청 전에는 왜 필요한지, 거부 뒤에는 어디서 켜는지 알린다.
  * 거부 줄은 줄 전체가 앱 정보 화면으로 가는 딥링크다.
  */
@@ -222,6 +252,7 @@ private fun StatusCardOffPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -238,6 +269,7 @@ private fun StatusCardActivePreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -254,6 +286,7 @@ private fun StatusCardLockScreenAbsentPreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 12 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = true,
             onStartTracking = {},
             onPause = {},
@@ -270,6 +303,24 @@ private fun StatusCardMutedPreview() {
             sessionStartedAtMillis = System.currentTimeMillis() - 42 * 60 * TICK_MILLIS,
             notificationPermission = NotificationPermission.Granted,
             muted = true,
+            restartNoticeAtMillis = null,
+            lockScreenAbsent = false,
+            onStartTracking = {},
+            onPause = {},
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun StatusCardRestartNoticePreview() {
+    UsingTimeTheme {
+        StatusCard(
+            trackingOn = true,
+            sessionStartedAtMillis = System.currentTimeMillis() - 3 * 60 * TICK_MILLIS,
+            notificationPermission = NotificationPermission.Granted,
+            muted = false,
+            restartNoticeAtMillis = System.currentTimeMillis() - 47 * 60 * TICK_MILLIS,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -286,6 +337,7 @@ private fun StatusCardPermissionRequiredPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Required,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},
@@ -302,6 +354,7 @@ private fun StatusCardPermissionDeniedPreview() {
             sessionStartedAtMillis = null,
             notificationPermission = NotificationPermission.Denied,
             muted = false,
+            restartNoticeAtMillis = null,
             lockScreenAbsent = false,
             onStartTracking = {},
             onPause = {},

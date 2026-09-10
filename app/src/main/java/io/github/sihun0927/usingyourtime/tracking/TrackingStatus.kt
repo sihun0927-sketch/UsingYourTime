@@ -9,13 +9,25 @@ import kotlinx.coroutines.flow.asStateFlow
  * 설정 화면이 열린 세션을 읽는 창구(스펙 5절 상태 카드). [TrackingService]가 리듀서에서 나온 새
  * 상태를 여기에 흘려보내고, 같은 프로세스의 화면이 [sessionStartedAtMillis]를 구독한다.
  *
- * 열린 세션은 Room `sessions`에도 남지만(#21), 그 행을 읽어 상태를 되살리는 것은 복구 티켓 #27의
- * 재동기화다. 그래서 서비스가 죽고 화면만 새로 뜬 경우에는 `tracking_on`이 켜진 채여도 여기는
- * null이고, 상태 카드가 연속 사용 시간을 "세션 없음"으로 둔다. 그 어긋남을 되돌리는 일은 #27·#28.
+ * 열린 세션은 Room `sessions`에도 남지만(#21), 그 행을 읽어 상태를 되살리는 것은 서비스의
+ * 재동기화다(스펙 7절). 그래서 서비스가 죽고 화면만 새로 뜬 순간에는 `tracking_on`이 켜진 채여도
+ * 여기가 null이지만, 액티비티가 시작될 때 [running]을 보고 서비스를 다시 띄워 곧 메워진다.
  *
  * 결정 배경은 `docs/adr/0001-ui-reads-open-session-from-process-holder.md`.
  */
 object TrackingStatus {
+
+    private val serviceRunning = MutableStateFlow(false)
+
+    /**
+     * [TrackingService]가 이 프로세스에 살아 있는지(스펙 7절 강제 종료·Task Manager "Stop" 뒤).
+     *
+     * 액티비티가 시작될 때 "`tracking_on`은 켜져 있는데 서비스가 없다"를 가려내는 유일한 신호다.
+     * 열린 세션 시각으로는 가릴 수 없다. 세션 없음 국면에서도 null이라 서비스가 죽은 것과 구별되지
+     * 않기 때문이다. `ActivityManager`로 남의 서비스를 묻는 길은 API 26부터 막혔고, 단일 프로세스
+     * 앱이라 서비스가 죽으면 이 값을 들고 있던 프로세스도 함께 죽어 다시 false에서 시작한다.
+     */
+    val running: StateFlow<Boolean> = serviceRunning.asStateFlow()
 
     private val openSessionStartedAtMillis = MutableStateFlow<Long?>(null)
 
@@ -42,6 +54,16 @@ object TrackingStatus {
      */
     val lockScreenAbsent: StateFlow<Boolean> = lockScreenAbsentState.asStateFlow()
 
+    /**
+     * [TrackingService]만 부른다. `onCreate`에서 한 번. 되돌리는 것은 [clear]다.
+     *
+     * 값을 받지 않는 단방향이다. 서비스가 살아 있다고 말할 수 있는 자리는 자기 `onCreate` 하나뿐이라
+     * 무엇을 세울지 고를 일이 없다.
+     */
+    internal fun markServiceStarted() {
+        serviceRunning.value = true
+    }
+
     /** [TrackingService]만 부른다. 리듀서가 상태를 바꾼 직후 메인 스레드에서. */
     internal fun publish(state: SessionState) {
         openSessionStartedAtMillis.value = state.session?.startedAtMillis
@@ -58,6 +80,7 @@ object TrackingStatus {
      * 안내도 남기지 않는다.
      */
     internal fun clear() {
+        serviceRunning.value = false
         publish(SessionState.Off)
         publishLockScreenAbsent(absent = false)
     }

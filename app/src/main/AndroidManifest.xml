@@ -37,6 +37,19 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-initiated unlock-to-lock continuous usage timer. Runs only while the user keeps tracking on; shows live elapsed time in a persistent notification; on-device only; user can stop anytime from the app." />
         </service>
+
+        <!--
+          재부팅·앱 업데이트에서 측정을 되살리는 리시버(스펙 7·8절). 서비스가 없는 동안 오는
+          브로드캐스트라 manifest에 있어야 한다. 잠금·잠금 해제는 서비스가 런타임 등록으로 받는다.
+        -->
+        <receiver
+            android:name=".tracking.RestartReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
